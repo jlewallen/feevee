@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -xe
+
+docker run --rm -p 11211:11211 --name memcache -d memcached memcached -m 64

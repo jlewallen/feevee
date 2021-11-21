@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -xe
+
+docker run --rm --name redis -d jlewallen/feevee-redis

@@ -1,0 +1,83 @@
+{
+    "version": 1,
+    "disable_existing_loggers": true,
+    "formatters": {
+        "simple": {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "simple",
+            "stream": "ext://sys.stderr"
+        }
+    },
+    "loggers": {
+        "dimsum": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.bus": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.schedule": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.security": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.model.registrar": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.dynamic": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.dynamic.calls": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.noise": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "dimsum.security": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "proxy": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        },
+        "uvicorn.access": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": false
+        }
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["console"]
+    }
+}

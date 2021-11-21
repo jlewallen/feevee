@@ -1,0 +1,3 @@
+#!/bin/bash
+
+MONEY_CACHE=~/espial/money uvicorn --log-config=`pwd`/logging.json --port 5000 --reload --factory "app:factory"

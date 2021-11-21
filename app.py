@@ -1,0 +1,479 @@
+from typing import List, Dict, Optional, Sequence, Tuple
+from decimal import Decimal, ROUND_HALF_UP
+from quart import Quart, send_from_directory, request, Response
+from quart import json as quart_json
+from quart_cors import cors
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+from aiocache import cached
+from dataclasses import dataclass, field
+import logging, json, asyncio, os, pandas
+
+import charts
+from backend import (
+    ManageCandles,
+    ManageDailies,
+    ManageIndicators,
+    MessagePublisher,
+    MessageWorker,
+    Caching,
+    get_cache,
+    SymbolMessage,
+    RefreshChartsHandler,
+    RefreshIndicatorsMessage,
+    RefreshDailyMessage,
+    RefreshCandlesMessage,
+    RefreshChartsMessage,
+    SymbolRepository,
+    RefreshQueue,
+    Stock,
+    is_market_open,
+    finish_key,
+    load_symbol_prices,
+    load_symbol_candles,
+    load_months_of_symbol_prices,
+)
+
+
+def _assemble_stock_view_model_key(fn, stock: Stock) -> str:
+    return finish_key(stock.key())
+
+
+@cached(key_builder=_assemble_stock_view_model_key, **Caching)
+async def assemble_stock_view_model(stock: Stock):
+    # Sure, this method is hideous but at least it's all in one place!
+    try:
+        prices = await load_symbol_prices(stock.symbol)
+    except FileNotFoundError:
+        log.info(f"{stock.symbol:6} missing prices!")
+        return None
+
+    last = dict(
+        time=prices.daily.index[-1],
+        itime=prices.daily.index[-1].timestamp(),
+        open=float(prices.daily[charts.DailyOpenColumn][-1]),
+        close=float(prices.daily[charts.DailyCloseColumn][-1]),
+        high=float(prices.daily[charts.DailyHighColumn][-1]),
+        low=float(prices.daily[charts.DailyLowColumn][-1]),
+    )
+    last_price = prices.daily[charts.DailyCloseColumn][-1]
+
+    previous = dict(
+        time=prices.daily.index[-2],
+        itime=prices.daily.index[-2].timestamp(),
+        open=float(prices.daily[charts.DailyOpenColumn][-2]),
+        close=float(prices.daily[charts.DailyCloseColumn][-2]),
+        high=float(prices.daily[charts.DailyHighColumn][-2]),
+        low=float(prices.daily[charts.DailyLowColumn][-2]),
+    )
+    previous_price = prices.daily[charts.DailyCloseColumn][-2]
+
+    price_change = last_price - previous_price
+    percent_change = (price_change / previous_price) * 100
+    symbol_lots = [lot for lot in stock.lots.lots if lot.symbol == stock.symbol]
+    basis_price = stock.lots.get_basis(stock.symbol)
+
+    def lot_to_json(lot):
+        return dict(date=lot.date, price=float(lot.price), quantity=float(lot.quantity))
+
+    def price_range(prices: charts.Prices):
+        price_range = prices.price_range()
+        r = (
+            prices.daily[charts.DailyOpenColumn][-1]
+            - prices.daily[charts.DailyCloseColumn][0]
+        )
+        return dict(
+            open=float(prices.daily[charts.DailyOpenColumn][0]),
+            close=float(prices.daily[charts.DailyCloseColumn][-1]),
+            low=float(price_range[0]),
+            high=float(price_range[1]),
+            percent_change=rounding((r / price_range[1]) * 100),
+        )
+
+    def make_position():
+        if not basis_price:
+            return None
+        return dict(
+            symbol=stock.symbol,
+            basis_price=rounding(basis_price),
+            total_value=rounding(last_price * sum([l.quantity for l in symbol_lots])),
+        )
+
+    today = datetime.now()
+    three_months = prices.history(today - relativedelta(months=3), today)
+    one_year = prices.history(today - relativedelta(months=12), today)
+    position = make_position()
+
+    virtual_tags = [] if stock.notes.tags else ["v:untagged"]
+    virtual_tags.append("v:hold" if position else "v:watch")
+    virtual_tags.append("v:down" if price_change < 0 else "v:up")
+
+    one_year_range = one_year.price_range()
+
+    def is_nearby(target: Decimal, value: Decimal) -> bool:
+        s = value * Decimal(0.9)
+        e = value * Decimal(1.1)
+        return target >= s and target <= e
+
+    if basis_price:
+        if last_price > basis_price:
+            virtual_tags.append("v:basis:above")
+            if "exiting" in stock.notes.tags:
+                virtual_tags.append("v:sell")
+        else:
+            virtual_tags.append("v:basis:below")
+            if "entering" in stock.notes.tags:
+                virtual_tags.append("v:buy")
+
+    if is_nearby(one_year_range[0], last_price):
+        virtual_tags.append("v:year:low")
+
+    if is_nearby(one_year_range[1], last_price):
+        virtual_tags.append("v:year:high")
+
+    if not stock.is_slow:
+        local_now = datetime.now()
+        allowed = 1
+        if local_now.weekday() == 5 or local_now.weekday() == 6:
+            allowed = 3
+        log.info(
+            f"{stock.symbol:6} local-now={local_now} price={prices.daily.index[-1]}"
+        )
+        if local_now - prices.daily.index[-1] > timedelta(days=allowed):
+            virtual_tags.append("v:old")
+
+    for np in stock.notes.prices:
+        if is_nearby(np, last_price):
+            virtual_tags.append("v:noted")
+            break
+
+    return dict(
+        symbol=stock.symbol,
+        version=stock.version,
+        meta=stock.meta,
+        key=finish_key(stock.key()),
+        info=json.loads(stock.info.data) if stock.info else None,
+        previous=previous,
+        last=last,
+        tags=stock.notes.tags + virtual_tags,
+        lots=[lot_to_json(lot) for lot in symbol_lots],
+        position=position,
+        change=price_change,
+        price=last_price,
+        previous_price=previous_price,
+        percent_change=rounding(percent_change),
+        negative=percent_change < 0,
+        three_months=price_range(three_months),
+        one_year=price_range(one_year),
+        noted_prices=stock.notes.prices,
+        has_candles=stock.candles_time > 0,
+        notes=[
+            dict(
+                symbol=n.symbol,
+                ts=n.ts,
+                noted_price=n.noted_price,
+                future_price=n.future_price,
+                body=n.body,
+            )
+            for n in stock.notes.rows
+        ],
+    )
+
+
+@dataclass
+class Theme:
+    colors: charts.Colors
+    noted_bg_color: str
+    noted_text_color: str
+    buy_bg_color: str
+    buy_text_color: str
+    basis_bg_color: str
+    basis_text_color: str
+
+
+Light = Theme(
+    charts.Light,
+    noted_bg_color="#d2b4de",
+    noted_text_color="#000000",
+    buy_bg_color="#aed6f1",
+    buy_text_color="#000000",
+    basis_bg_color="#c1e1c1",
+    basis_text_color="#000000",
+)
+
+Dark = Theme(
+    charts.Dark,
+    noted_bg_color="#f4d03f",
+    noted_text_color="#000000",
+    buy_bg_color="#85c1e9",
+    buy_text_color="#000000",
+    basis_bg_color="#73c6b6",
+    basis_text_color="#000000",
+)
+
+Paper = Theme(
+    charts.Paper,
+    noted_bg_color="#f4d03f",
+    noted_text_color="#000000",
+    buy_bg_color="#85c1e9",
+    buy_text_color="#000000",
+    basis_bg_color="#73c6b6",
+    basis_text_color="#000000",
+)
+
+
+Themes = {"dark": Dark, "light": Light, "paper": Paper}
+
+
+def get_theme(name: str):
+    assert name in Themes
+    return Themes[name]
+
+
+async def _render_ohlc(stock: Stock, prices: charts.Prices, w: int, h: int, style: str):
+    symbol = stock.symbol
+    theme = get_theme(style)
+    basis_price = stock.lots.get_basis(symbol)
+    last_buy_price = stock.lots.get_last_buy_price(symbol)
+
+    marks = [
+        charts.PriceMark(np, theme.noted_bg_color, theme.noted_text_color, False, True)
+        for np in stock.notes.prices
+    ]
+
+    if last_buy_price:
+        marks.append(
+            charts.PriceMark(
+                rounding(last_buy_price),
+                theme.buy_bg_color,
+                theme.buy_text_color,
+                False,
+                True,
+            )
+        )
+
+    if basis_price:
+        marks.append(
+            charts.PriceMark(
+                rounding(basis_price),
+                theme.basis_bg_color,
+                theme.basis_text_color,
+                False,
+                True,
+            )
+        )
+
+    data = await charts.ohlc(
+        prices, symbol, size=(w, h), marks=marks, colors=theme.colors
+    )
+    return Response(data, mimetype="image/png")
+
+
+def _render_candles_key(fn, stock: Stock, w: int, h: int, style: str) -> str:
+    return finish_key(["candles"] + stock.key() + [str(v) for v in [w, h, style]])
+
+
+@cached(key_builder=_render_candles_key, **Caching)
+async def render_candles(stock: Stock, w: int, h: int, style: str):
+    log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {style}")
+    candles = await load_symbol_candles(stock.symbol)
+    prices = charts.Prices(symbol=stock.symbol, daily=candles.to_df())
+    return await _render_ohlc(stock, prices, w, h, style)
+
+
+def _render_ohlc_key(fn, stock: Stock, months: int, w: int, h: int, style: str) -> str:
+    return finish_key(["ohlc"] + stock.key() + [str(v) for v in [months, w, h, style]])
+
+
+@cached(key_builder=_render_ohlc_key, **Caching)
+async def render_ohlc(stock: Stock, months: int, w: int, h: int, style: str):
+    log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {months} {style}")
+    prices = await load_months_of_symbol_prices(stock.symbol, months)
+    return await _render_ohlc(stock, prices, w, h, style)
+
+
+@dataclass
+class ChartTemplate:
+    w: int
+    h: int
+
+
+@dataclass
+class WebChartsCacheWarmer(RefreshChartsHandler):
+    templates: List[ChartTemplate] = field(default_factory=list)
+    capacity: int = 6
+
+    async def include_template(self, w: int, h: int):
+        template = ChartTemplate(w, h)
+        if template in self.templates:
+            return
+
+        if len(self.templates) > self.capacity:
+            log.info(f"web-charts:clearing-capacity")
+            self.templates = self.templates[len(self.templates) - self.capacity :]
+
+        log.info(f"web-charts:new {template}")
+        self.templates.append(template)
+
+    async def handle(self, messages: MessagePublisher, m: SymbolMessage):
+        log.info(f"{m.symbol:6} web-charts:begin")
+        stock = await repository.get_stock(m.symbol)
+        for template in self.templates:
+            for theme in Themes:
+                for months in [4, 12]:
+                    log.debug(f"{m.symbol:6} web-charts:refresh {template} / {theme}")
+                    await render_candles(stock, template.w, template.h, theme)
+                    await render_ohlc(stock, months, template.w, template.h, theme)
+
+
+class JSONEncoder(quart_json.JSONEncoder):
+    def default(self, object_):
+        if isinstance(object_, Decimal):
+            return str(object_)
+        elif isinstance(object_, datetime):
+            return str(object_)
+        else:
+            return super().default(object_)
+
+
+log = logging.getLogger("feevee")
+app = cors(Quart(__name__))
+app.json_encoder = JSONEncoder
+repository = SymbolRepository()
+
+DefaultTagPriorities = {
+    "hf": 0,
+    "v:noted": 0.40,
+    "v:hold": 0.45,
+    "v:untagged": 0.95,
+    "lf": 1,
+    "slow": 1,
+}
+candles = MessageWorker(
+    ManageCandles(
+        tag_priorities=DefaultTagPriorities,
+    )
+)
+indicators = MessageWorker(ManageIndicators())
+dailies = MessageWorker(ManageDailies(tag_priorities=DefaultTagPriorities))
+web_charts = WebChartsCacheWarmer()
+refreshing = RefreshQueue(
+    repository, candles, dailies, MessageWorker(web_charts, concurrency=5), indicators
+)
+
+
+@app.route("/status")
+async def status():
+    await refreshing.start()
+
+    stocks = await repository.get_all_stocks()
+    view_models = [assemble_stock_view_model(stock) for stock in stocks]
+    symbols = await asyncio.gather(*view_models)
+    return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
+
+
+@app.route("/clear")
+async def clear():
+    cache = get_cache()
+    log.info(f"clearing {cache}")
+    await cache.clear()
+
+    await refreshing.start()
+
+    return dict()
+
+
+@app.route("/render")
+async def render():
+    stocks = await repository.get_all_stocks()
+    for stock in stocks:
+        await refreshing.push(RefreshChartsMessage(stock.symbol))
+
+    return dict()
+
+
+async def _basic_refresh(symbol: str):
+    if request.args.get("daily"):
+        await refreshing.push(RefreshDailyMessage(symbol))
+    if request.args.get("candles"):
+        await refreshing.push(RefreshCandlesMessage(symbol))
+    if request.args.get("indicators"):
+        await refreshing.push(RefreshIndicatorsMessage(symbol))
+
+
+@app.route("/symbols", methods=["POST"])
+async def add_symbols():
+    return dict()
+
+
+@app.route("/symbols/refresh")
+async def refresh_symbols():
+    await refreshing.start()
+
+    stocks = await repository.get_all_stocks()
+    for stock in stocks:
+        await _basic_refresh(stock.symbol)
+
+    return dict()
+
+
+@app.route("/symbols/<symbol>/refresh")
+async def refresh_symbol(symbol: str):
+    await _basic_refresh(symbol)
+
+    return dict()
+
+
+@app.route("/symbols/<symbol>/ohlc/<int:months>/<int:w>/<int:h>/<style>")
+async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
+    await web_charts.include_template(w, h)
+    stock = await repository.get_stock(symbol)
+    return await render_ohlc(stock, months, w, h, style)
+
+
+@app.route("/symbols/<symbol>/candles/<int:w>/<int:h>/<style>")
+async def get_candles(symbol: str, w: int, h: int, style: str):
+    stock = await repository.get_stock(symbol)
+    return await render_candles(stock, w, h, style)
+
+
+@app.route("/symbols/<symbol>/notes", methods=["POST"])
+async def notes(symbol: str):
+    raw = await request.get_data()
+    parsed = json.loads(raw)
+    stock = await repository.get_stock(symbol)
+    if parsed["body"]:
+        log.info(f"{symbol:6} notes:saving {stock.key()}")
+        stock = await repository.save_notes(
+            symbol, parsed["notedPrice"], parsed["body"]
+        )
+        log.info(f"{symbol:6} notes:saved {stock.key()}")
+    return await assemble_stock_view_model(stock)
+
+
+@app.route("/css/<path:path>")
+async def send_css(path: str):
+    return await send_from_directory("dist/css", path)
+
+
+@app.route("/js/<path:path>")
+async def send_js(path: str):
+    return await send_from_directory("dist/js", path)
+
+
+@app.route("/<path:path>")
+async def send_spa(path: str):
+    return await send_from_directory("dist", path)
+
+
+@app.route("/")
+async def send_index():
+    return await send_from_directory("dist", "index.html")
+
+
+def rounding(v: Decimal) -> Decimal:
+    return v.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+
+def factory():
+    return app

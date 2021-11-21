@@ -1,0 +1,3 @@
+#!/bin/bash
+
+docker run --rm -e MONEY_CACHE=/cache -e WEB_CONCURRENCY=1 -p 9000:8000 -v /svr0/share/money:/cache jlewallen/reporting
