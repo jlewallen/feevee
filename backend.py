@@ -221,7 +221,7 @@ async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTime
 
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
     return finish_key(
-        [str(fn), str(portfolio.user), symbol]
+        [fn.__name__, str(portfolio.user), symbol]
         + cache_key_from_files(
             charts.get_relative_daily_prices_path(symbol),
             charts.get_relative_candles_path(symbol),
@@ -913,7 +913,7 @@ def _include_candles(prices: charts.Prices, candles: Candles) -> charts.Prices:
 
 def _load_symbol_candles_key(fn, symbol: str) -> str:
     return finish_key(
-        [str(fn), symbol]
+        [fn.__name__, symbol]
         + cache_key_from_files(charts.get_relative_candles_path(symbol))
     )
 
@@ -933,7 +933,7 @@ async def load_symbol_candles(symbol: str):
 
 def _load_daily_symbol_prices_key(fn, symbol: str) -> str:
     return finish_key(
-        [str(fn), symbol]
+        [fn.__name__, symbol]
         + cache_key_from_files(charts.get_relative_daily_prices_path(symbol))
     )
 
@@ -947,7 +947,7 @@ async def load_daily_symbol_prices(symbol: str):
 
 def _load_symbol_prices_key(fn, symbol: str) -> str:
     return finish_key(
-        [str(fn), symbol]
+        [fn.__name__, symbol]
         + cache_key_from_files(
             charts.get_relative_daily_prices_path(symbol),
             charts.get_relative_candles_path(symbol),

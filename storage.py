@@ -211,8 +211,6 @@ class SymbolStorage:
             ],
         )
 
-        # self._user_modified(user_key)
-
         self.db.commit()
 
     def _user_modified(self, user_key: UserKey):
