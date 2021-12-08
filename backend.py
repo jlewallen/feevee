@@ -5,16 +5,17 @@ from dataclasses import dataclass, field
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
-from storage import UserKey, SymbolStorage, SymbolRow, NoteRow
+from storage import UserKey, SymbolStorage, SymbolRow, NoteRow, UserId
 from alpha_vantage.timeseries import TimeSeries
 from asyncio_throttle import Throttler, throttler  # type: ignore
 from datetime import datetime, timedelta
 from pytz import timezone
 from time import mktime
 from aiocron import crontab
+from watchgod import awatch
 import logging, os, json, re, threading
 import hashlib, asyncio, aiofiles
-import charts, lots as stocklots
+import charts, archive, lots as stocklots
 import finnhub
 
 
@@ -129,8 +130,8 @@ class Stock:
 
 
 def cache_key_from_files(*paths) -> List[str]:
-    parts = [charts.get_file_mtime(os.path.join(MoneyCache, p)) for p in paths]
-    return [str(p) for p in parts] + list(paths)
+    parts = [[p, archive.get_time(os.path.join(MoneyCache, p))] for p in paths]
+    return [(str(p)) for p in flatten(parts)]
 
 
 def finish_key(parts: Sequence[str]) -> str:
@@ -230,6 +231,7 @@ def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
 
 @cached(key_builder=_load_stock_key, **Caching)
 async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
+    log.info(f"{symbol:6} key={_load_stock_key(load_stock, portfolio, symbol)}")
     info = await load_symbol_info(portfolio.user, symbol)
     notes = await load_symbol_notes(portfolio.user, symbol)
     price_times = await load_stock_price_times(portfolio, symbol)
@@ -456,8 +458,11 @@ class ManageDailies(MessageHandler):
 
         if m.maximum_age > 0 and os.path.isfile(daily_path):
             local_now = datetime.now().timestamp()
-            daily_prices_time = charts.get_file_mtime(daily_path)
-            if local_now - daily_prices_time < m.maximum_age:
+            daily_prices_time = archive.get_time(daily_path)
+            if (
+                daily_prices_time
+                and local_now - daily_prices_time.timestamp() < m.maximum_age
+            ):
                 log.info(f"{m.symbol:6} daily:fresh")
                 return
 
@@ -672,7 +677,12 @@ class RefreshQueue(MessagePublisher):
     async def _opening(self):
         log.info(f"bell-opening:ding")
 
-    async def _user_minute(self, user: UserKey):
+    async def _user_minute(self, user_id: UserId):
+        db = SymbolStorage()
+        db.open()
+
+        user = db.get_user_key_by_user_id(user_id)
+
         portfolio = await load_portfolio(user)
 
         stocks = await self.repository.get_all_stocks(user)
@@ -687,10 +697,13 @@ class RefreshQueue(MessagePublisher):
         log.info(f"minute")
         db = SymbolStorage()
         db.open()
-        users = db.get_all_user_keys()
-        return asyncio.gather(*[self._user_minute(user) for user in users])
+        user_ids = db.get_all_user_ids()
+        return asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
 
-    async def _user_closing(self, user: UserKey):
+    async def _user_closing(self, user_id: UserId):
+        db = SymbolStorage()
+        db.open()
+        user = db.get_user_key_by_user_id(user_id)
         portfolio = await load_portfolio(user)
         for symbol in portfolio.symbols:
             await self.push(RefreshDailyMessage(user, symbol, maximum_age=0))
@@ -699,8 +712,8 @@ class RefreshQueue(MessagePublisher):
         log.info(f"bell-closing:ding")
         db = SymbolStorage()
         db.open()
-        users = db.get_all_user_keys()
-        return asyncio.gather(*[self._user_closing(user) for user in users])
+        user_ids = db.get_all_user_ids()
+        return asyncio.gather(*[self._user_closing(user_id) for user_id in user_ids])
 
     async def _watch(self):
         while True:
@@ -713,6 +726,13 @@ class RefreshQueue(MessagePublisher):
                 self.dailies.stop()
                 self.indicators.stop()
                 break
+
+    async def _watch_file_system(self):
+        path = os.path.join(MoneyCache, ".av")
+        await archive.get_directory(path)
+        async for changes in awatch(path):
+            log.info(f"{changes}")
+            await archive.get_directory(path)
 
     async def start(self):
         if self.tasks:
@@ -731,6 +751,7 @@ class RefreshQueue(MessagePublisher):
         self.tasks.append(asyncio.create_task(self._crond("* * * * *", self._minute)))
         self.tasks.append(asyncio.create_task(self._crond(open_cron, self._opening)))
         self.tasks.append(asyncio.create_task(self._crond(close_cron, self._closing)))
+        self.tasks.append(asyncio.create_task(self._watch_file_system()))
 
 
 @dataclass

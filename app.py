@@ -369,8 +369,8 @@ async def get_user() -> UserKey:
     db.open()
     maybe_user = db.get_user_key_by_user_id(AdministratorUserId)
     assert maybe_user
-    log.info(f"user: {maybe_user[0]}")
-    return maybe_user[0]
+    log.debug(f"user: {maybe_user}")
+    return maybe_user
 
 
 @app.route("/status")

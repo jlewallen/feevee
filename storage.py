@@ -7,10 +7,12 @@ import jsonpickle
 
 log = logging.getLogger("storage")
 
+UserId = int
+
 
 @dataclass
 class UserKey:
-    uid: int
+    uid: UserId
     generation: str
     symbols: Dict[str, str] = field(default_factory=dict)
 
@@ -82,23 +84,20 @@ class SymbolStorage:
     def close(self):
         self.db.close()
 
-    def get_user_key_by_user_id(self, user_id: int) -> List[UserKey]:
+    def get_user_key_by_user_id(self, user_id: int) -> UserKey:
         symbol_keys = self._get_user_symbol_keys(user_id)
-        return [
+        found = [
             UserKey(row[0], str(row[1]), symbol_keys)
             for row in self.dbc.execute(
                 "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ? GROUP BY users.id, users.modified",
                 [user_id],
             )
         ]
+        assert found
+        return found[0]
 
-    def get_all_user_keys(self) -> List[UserKey]:
-        return [
-            UserKey(row[0], str(row[1]))
-            for row in self.dbc.execute(
-                "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) GROUP BY users.id, users.modified"
-            )
-        ]
+    def get_all_user_ids(self) -> List[UserId]:
+        return [row[0] for row in self.dbc.execute("SELECT id FROM users")]
 
     def has_symbol(self, symbol: str):
         return self.get_symbol(symbol) is not None

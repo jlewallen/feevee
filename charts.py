@@ -109,12 +109,6 @@ class Prices:
         return Prices(self.symbol, self.daily.copy())
 
 
-def get_file_mtime(path: str, zero_on_no_file=True) -> float:
-    if zero_on_no_file and not os.path.isfile(path):
-        return 0
-    return os.stat(path).st_mtime
-
-
 def get_relative_candles_path(symbol: str) -> str:
     return f".av/{symbol}-candles.json"
 
