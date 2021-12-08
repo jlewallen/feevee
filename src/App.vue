@@ -2,6 +2,7 @@
   <div id="app" :class="theme">
     <div class="top">
       <div><router-link to="/">home</router-link></div>
+      <div><router-link to="/symbols">choose symbols</router-link></div>
       <div><a href="#" v-on:click="toggleStyle">theme</a></div>
       <div><a href="#" v-on:click="render">render</a></div>
       <div><a href="#" v-on:click="clear">clear cache</a></div>
@@ -72,7 +73,7 @@
         v-for="tag in tags"
         v-bind:key="tag.tag"
       >
-        <router-link :to="'/' + tag.tag">#{{ tag.tag }} </router-link>
+        <router-link :to="'/tags/' + tag.tag">#{{ tag.tag }} </router-link>
         {{ tag.n }}
       </span>
     </div>

@@ -60,7 +60,7 @@
           >D</span
         >
         <span class="tag" v-for="tag in visible.tags" v-bind:key="tag">
-          <router-link :to="'/' + tag">#{{ tag }} </router-link>
+          <router-link :to="'/tags/' + tag">#{{ tag }} </router-link>
         </span>
         <span class="links" v-if="visible.info">
           {{ visible.info.name.substring(0, 50) }}

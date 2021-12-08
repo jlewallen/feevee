@@ -82,14 +82,17 @@ class SymbolStorage:
         return [
             UserKey(row[0], str(row[1]))
             for row in self.dbc.execute(
-                "SELECT id, modified FROM users WHERE id = ?", [user_id]
+                "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ? GROUP BY users.id, users.modified",
+                [user_id],
             )
         ]
 
     def get_all_user_keys(self) -> List[UserKey]:
         return [
             UserKey(row[0], str(row[1]))
-            for row in self.dbc.execute("SELECT id, modified FROM users")
+            for row in self.dbc.execute(
+                "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) GROUP BY users.id, users.modified"
+            )
         ]
 
     def has_symbol(self, symbol: str):
@@ -104,9 +107,21 @@ class SymbolStorage:
 
     def get_all_symbols(self, user_key: UserKey):
         rows = self.dbc.execute(
-            "SELECT symbol, modified, data FROM symbols ORDER BY symbol"
+            "SELECT symbol, modified, data FROM symbols WHERE symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
+            [user_key.uid],
         )
-        return {row[0]: SymbolRow(row[0], row[1], row[2]) for row in rows}
+        return [SymbolRow(row[0], row[1], row[2]) for row in rows]
+
+    def add_symbols(self, user_key: UserKey, symbols: List[str]):
+        for symbol in symbols:
+            self.dbc.execute(
+                "INSERT INTO user_symbol (user_id, symbol) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                [user_key.uid, symbol],
+            )
+
+        self._user_modified(user_key)
+
+        self.db.commit()
 
     def set_symbol(self, symbol: str, data: Any):
         serialized = jsonpickle.encode(data)

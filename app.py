@@ -417,6 +417,15 @@ async def _basic_refresh(user: UserKey, symbol: str):
 
 @app.route("/symbols", methods=["POST"])
 async def add_symbols():
+    user = await get_user()
+    raw = await request.get_data()
+    parsed: Dict[str, List[str]] = json.loads(raw)
+
+    if parsed["adding"]:
+        await repository.add_symbols(user, parsed["symbols"])
+    else:
+        raise NotImplementedError
+
     return dict()
 
 

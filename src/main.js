@@ -1,5 +1,7 @@
 import Vue from "vue";
+import Layout from "./Layout.vue";
 import App from "./App.vue";
+import SymbolsEditor from "./SymbolsEditor.vue";
 import VueRouter from "vue-router";
 import VueLazyload from "vue-lazyload";
 
@@ -15,7 +17,8 @@ Vue.use(VueLazyload, {
 
 const routes = [
   { path: "/", component: App },
-  { path: "/:tags", component: App },
+  { path: "/symbols", component: SymbolsEditor },
+  { path: "/tags/:tags", component: App },
 ];
 
 const router = new VueRouter({
@@ -26,5 +29,5 @@ Vue.config.productionTip = false;
 
 new Vue({
   router,
-  render: (h) => h(App),
+  render: (h) => h(Layout),
 }).$mount("#app");

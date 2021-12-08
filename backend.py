@@ -84,7 +84,6 @@ class TagPriority:
 class Portfolio:
     user: UserKey
     symbols: List[str]
-    slow: List[str]
     lots: stocklots.Lots
     meta: Dict[str, Dict[str, Any]]
 
@@ -113,7 +112,10 @@ class Stock:
     lots: stocklots.Lots = field(default_factory=stocklots.Lots)
     notes: Notes = field(default_factory=Notes)
     meta: Dict[str, Any] = field(default_factory=dict)
-    is_slow: bool = False
+
+    @property
+    def is_slow(self) -> bool:
+        return self.tagged("#lf")
 
     def key(self) -> List[str]:
         return [self.symbol, self.version]
@@ -138,33 +140,26 @@ def flatten(a):
 def _load_portfolio_key(fn, user: UserKey) -> str:
     return finish_key(
         ["load-profile", str(user)]
-        + cache_key_from_files("lots.txt", "stocks.json")
+        + cache_key_from_files("lots.txt")
         + cache_key_from_files(*[path for key, path in MetaPaths.items()]),
     )
 
 
 @cached(key_builder=_load_portfolio_key, **Caching)
 async def load_portfolio(user: UserKey) -> Portfolio:
-    log.info(f"profile:reading stocks.json")
-    async with aiofiles.open(os.path.join(MoneyCache, "stocks.json"), mode="r") as file:
-        stocks_json = json.loads(await file.read())
-
     log.info(f"profile:reading lots.txt")
     async with aiofiles.open(os.path.join(MoneyCache, "lots.txt"), mode="r") as file:
         lots = stocklots.parse(await file.read())
 
     meta = await load_meta()
 
-    watching = stocks_json["watching"]
-    hiding = stocks_json["hiding"]
-    slow_symbols = stocks_json["slow"]
-    meta_symbols = flatten([list(value.keys()) for key, value in meta.items()])
-    all_symbols = list(set(meta_symbols + watching) - set(hiding))
+    user_symbol_rows = await load_all_symbols(user)
+    all_symbols = [row.symbol for row in user_symbol_rows]
 
     if "FEEVEE_SYMBOLS" in os.environ:
         all_symbols = os.environ["FEEVEE_SYMBOLS"].split(" ")
 
-    return Portfolio(user, all_symbols, slow_symbols, lots, meta)
+    return Portfolio(user, all_symbols, lots, meta)
 
 
 async def load_meta() -> Dict[str, Dict[str, Any]]:
@@ -178,7 +173,7 @@ async def load_meta() -> Dict[str, Dict[str, Any]]:
 
 
 def _load_all_symbols_key(fn, user: UserKey):
-    return finish_key(["all-symbols", str(user)] + cache_key_from_files("feevee.db"))
+    return finish_key(["all-symbols", str(user)])
 
 
 @cached(key_builder=_load_all_symbols_key, **Caching)
@@ -301,7 +296,6 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
         return None
 
     meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
-    is_slow = symbol in portfolio.slow
 
     version = hashlib.sha224(bytes(hashing, encoding="utf8")).hexdigest()
     log.info(f"{symbol:6} loading stock {version}")
@@ -315,7 +309,6 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
         portfolio.lots,
         notes,
         meta,
-        is_slow,
     )
 
 
@@ -819,6 +812,11 @@ class SymbolRepository:
                 user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
             )
         return await self.get_stock(user, symbol)
+
+    async def add_symbols(str, user: UserKey, symbols: List[str]):
+        db = SymbolStorage()
+        db.open()
+        db.add_symbols(user, symbols)
 
 
 @dataclass
