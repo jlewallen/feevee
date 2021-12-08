@@ -19,6 +19,9 @@ class UserKey:
     def __str__(self):
         return f"UserKey<{self.uid}, {self.generation}, {len(self.symbols.keys())}>"
 
+    def __repr__(self):
+        return str(self)
+
 
 @dataclass
 class SymbolRow:

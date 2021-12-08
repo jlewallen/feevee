@@ -727,9 +727,11 @@ class RefreshQueue(MessagePublisher):
                 self.indicators.stop()
                 break
 
+    def _get_watch_dir(self) -> str:
+        return os.path.join(MoneyCache, ".av")
+
     async def _watch_file_system(self):
-        path = os.path.join(MoneyCache, ".av")
-        await archive.get_directory(path)
+        path = self._get_watch_dir()
         async for changes in awatch(path):
             log.info(f"{changes}")
             await archive.get_directory(path)
@@ -737,6 +739,10 @@ class RefreshQueue(MessagePublisher):
     async def start(self):
         if self.tasks:
             return
+
+        log.info(f"queues:starting")
+
+        await archive.get_directory(self._get_watch_dir())
 
         self.charts.start(self)
         self.dailies.start(self)

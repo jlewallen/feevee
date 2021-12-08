@@ -365,6 +365,8 @@ AdministratorUserId = 1
 
 
 async def get_user() -> UserKey:
+    await refreshing.start()
+
     db = SymbolStorage()
     db.open()
     maybe_user = db.get_user_key_by_user_id(AdministratorUserId)
@@ -377,8 +379,6 @@ async def get_user() -> UserKey:
 async def status():
     user = await get_user()
 
-    await refreshing.start()
-
     stocks = await repository.get_all_stocks(user)
     view_models = [assemble_stock_view_model(stock) for stock in stocks]
     symbols = await asyncio.gather(*view_models)
@@ -387,11 +387,12 @@ async def status():
 
 @app.route("/clear")
 async def clear():
+    user = await get_user()
+    assert user.uid == AdministratorUserId
+
     cache = get_cache()
     log.info(f"clearing {cache}")
     await cache.clear()
-
-    await refreshing.start()
 
     return dict()
 
@@ -399,6 +400,8 @@ async def clear():
 @app.route("/render")
 async def render():
     user = await get_user()
+    assert user.uid == AdministratorUserId
+
     stocks = await repository.get_all_stocks(user)
     for stock in stocks:
         await refreshing.push(RefreshChartsMessage(user, stock.symbol))
@@ -432,9 +435,6 @@ async def add_symbols():
 @app.route("/symbols/refresh")
 async def refresh_symbols():
     user = await get_user()
-
-    await refreshing.start()
-
     stocks = await repository.get_all_stocks(user)
     for stock in stocks:
         await _basic_refresh(user, stock.symbol)
@@ -445,7 +445,6 @@ async def refresh_symbols():
 @app.route("/symbols/<symbol>/refresh")
 async def refresh_symbol(symbol: str):
     user = await get_user()
-
     await _basic_refresh(user, symbol)
 
     return dict()
