@@ -86,6 +86,11 @@ class Portfolio:
     lots: stocklots.Lots
     meta: Dict[str, Dict[str, Any]]
 
+    def get_symbol_key(self, symbol: str) -> Optional[str]:
+        if symbol in self.user.symbols:
+            return self.user.symbols[symbol]
+        return None
+
 
 @dataclass
 class Notes:
@@ -223,7 +228,12 @@ async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTime
 
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
     return finish_key(
-        [fn.__name__, str(portfolio.user), symbol]
+        [
+            fn.__name__,
+            str(portfolio.user),
+            symbol,
+            portfolio.get_symbol_key(symbol) or "",
+        ]
         + cache_key_from_files(
             charts.get_relative_daily_prices_path(symbol),
             charts.get_relative_candles_path(symbol),
@@ -264,6 +274,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
 class SymbolMessage:
     user: UserKey
     symbol: str
+    render: bool = False
 
 
 @dataclass
@@ -536,7 +547,7 @@ class ManageCandles(MessageHandler):
         def can_refresh(stock: Stock) -> bool:
             if stock.is_slow:
                 return False
-            return self.touched.can_touch(stock.symbol, timedelta(minutes=30))
+            return self.touched.can_touch(stock.symbol, timedelta(minutes=10))
 
         sorter = StockSorter(tag_priorities=self.tag_priorities)
         available = [stock for stock in stocks if can_refresh(stock)]
@@ -602,7 +613,8 @@ class ManageCandles(MessageHandler):
         except:
             log.exception(f"{m.symbol:6} candles:error")
 
-        await messages.push(RefreshChartsMessage(m.user, m.symbol))
+        if m.render:
+            await messages.push(RefreshChartsMessage(m.user, m.symbol))
 
 
 @dataclass
@@ -776,12 +788,15 @@ class SymbolRepository:
     async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
         db = SymbolStorage()
         db.open()
+        portfolio = await load_portfolio(user)
         notes = db.get_notes(user, symbol)
         if len(notes) == 0 or notes[0].body != body:
-            db.add_notes(
+            user = db.add_notes(
                 user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
             )
-        return await self.get_stock(user, symbol)
+            # HACK This isn't updating the user in Portfolio
+            portfolio.user = user
+        return await self.get_stock(user, symbol, portfolio)
 
     async def add_symbols(str, user: UserKey, symbols: List[str]):
         db = SymbolStorage()

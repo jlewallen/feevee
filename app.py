@@ -36,6 +36,56 @@ from backend import (
 from storage import SymbolStorage, UserKey
 
 
+@dataclass
+class Theme:
+    colors: charts.Colors
+    noted_bg_color: str
+    noted_text_color: str
+    buy_bg_color: str
+    buy_text_color: str
+    basis_bg_color: str
+    basis_text_color: str
+
+
+Light = Theme(
+    charts.Light,
+    noted_bg_color="#d2b4de",
+    noted_text_color="#000000",
+    buy_bg_color="#aed6f1",
+    buy_text_color="#000000",
+    basis_bg_color="#c1e1c1",
+    basis_text_color="#000000",
+)
+
+Dark = Theme(
+    charts.Dark,
+    noted_bg_color="#f4d03f",
+    noted_text_color="#000000",
+    buy_bg_color="#85c1e9",
+    buy_text_color="#000000",
+    basis_bg_color="#73c6b6",
+    basis_text_color="#000000",
+)
+
+Paper = Theme(
+    charts.Paper,
+    noted_bg_color="#f4d03f",
+    noted_text_color="#000000",
+    buy_bg_color="#85c1e9",
+    buy_text_color="#000000",
+    basis_bg_color="#73c6b6",
+    basis_text_color="#000000",
+)
+
+
+Themes = {"dark": Dark, "light": Light, "paper": Paper}
+
+
+def get_theme(name: str):
+    assert name in Themes
+    return Themes[name]
+
+
 def _assemble_stock_view_model_key(fn, stock: Stock) -> str:
     return finish_key(stock.key())
 
@@ -179,56 +229,6 @@ async def assemble_stock_view_model(stock: Stock):
             for n in stock.notes.rows
         ],
     )
-
-
-@dataclass
-class Theme:
-    colors: charts.Colors
-    noted_bg_color: str
-    noted_text_color: str
-    buy_bg_color: str
-    buy_text_color: str
-    basis_bg_color: str
-    basis_text_color: str
-
-
-Light = Theme(
-    charts.Light,
-    noted_bg_color="#d2b4de",
-    noted_text_color="#000000",
-    buy_bg_color="#aed6f1",
-    buy_text_color="#000000",
-    basis_bg_color="#c1e1c1",
-    basis_text_color="#000000",
-)
-
-Dark = Theme(
-    charts.Dark,
-    noted_bg_color="#f4d03f",
-    noted_text_color="#000000",
-    buy_bg_color="#85c1e9",
-    buy_text_color="#000000",
-    basis_bg_color="#73c6b6",
-    basis_text_color="#000000",
-)
-
-Paper = Theme(
-    charts.Paper,
-    noted_bg_color="#f4d03f",
-    noted_text_color="#000000",
-    buy_bg_color="#85c1e9",
-    buy_text_color="#000000",
-    basis_bg_color="#73c6b6",
-    basis_text_color="#000000",
-)
-
-
-Themes = {"dark": Dark, "light": Light, "paper": Paper}
-
-
-def get_theme(name: str):
-    assert name in Themes
-    return Themes[name]
 
 
 async def _render_ohlc(stock: Stock, prices: charts.Prices, w: int, h: int, style: str):

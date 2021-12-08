@@ -211,7 +211,11 @@ class SymbolStorage:
             ],
         )
 
+        updated_user_key = self.get_user_key_by_user_id(user_key.uid)
+
         self.db.commit()
+
+        return updated_user_key
 
     def _user_modified(self, user_key: UserKey):
         self.dbc.execute(
