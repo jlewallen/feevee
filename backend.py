@@ -40,8 +40,6 @@ MetaPaths: Dict[str, str] = {
 
 DailiesPerMinute = 5
 CandlesPerMinute = 20
-HighFrequencyCandlesPerMinute = 5
-RegularCandlesPerMinute = 12
 
 
 def get_cache():
@@ -384,10 +382,10 @@ class MessageWorker:
 class Touched:
     touched: Dict[str, datetime] = field(default_factory=dict)
 
-    def can_touch(self, key: str, elapsed: timedelta) -> bool:
+    def can_touch(self, key: str, threshold: timedelta) -> bool:
         if key in self.touched:
             elapsed = datetime.utcnow() - self.touched[key]
-            if elapsed < elapsed:
+            if elapsed < threshold:
                 return False
         return True
 
@@ -406,9 +404,15 @@ class StockSorter:
                 if stock.tagged(tag):
                     p = priority
                     break
-            return (p, stock.price_times.candles)
 
-        return sorted(stocks, key=get_sort_key)
+            time = (
+                stock.price_times.candles.timestamp()
+                if stock.price_times.candles
+                else 0
+            )
+            return (time, p)
+
+        return list(sorted(stocks, key=get_sort_key))
 
 
 @dataclass
@@ -512,9 +516,6 @@ async def write_json_file(data: Any, path: str):
 
 @dataclass
 class ManageCandles(MessageHandler):
-    hf_tag: str = "hf"
-    hf_per_minute: int = HighFrequencyCandlesPerMinute
-    candles_per_minute: int = RegularCandlesPerMinute
     tag_priorities: Dict[str, float] = field(default_factory=dict)
     throttler: Throttler = Throttler(rate_limit=CandlesPerMinute, period=60)
     touched: Touched = field(default_factory=Touched)
@@ -531,18 +532,12 @@ class ManageCandles(MessageHandler):
         def can_refresh(stock: Stock) -> bool:
             if stock.is_slow:
                 return False
-            return self.touched.can_touch(stock.symbol, timedelta(minutes=10))
+            return self.touched.can_touch(stock.symbol, timedelta(minutes=30))
 
-        available = [stock for stock in stocks if can_refresh(stock)]
         sorter = StockSorter(tag_priorities=self.tag_priorities)
-
+        available = [stock for stock in stocks if can_refresh(stock)]
         by_time = sorter.sort(available)
-        hf = [stock for stock in by_time if stock.tagged(self.hf_tag)]
-        reg = [stock for stock in by_time if not stock.tagged(self.hf_tag)]
-
-        refreshing = hf[: self.hf_per_minute]
-        refreshing += reg[: self.candles_per_minute - len(refreshing)]
-
+        refreshing = by_time[:CandlesPerMinute]
         symbols = [stock.symbol for stock in refreshing]
         if symbols:
             log.info(f"queue:candles {symbols}")
@@ -583,7 +578,7 @@ class ManageCandles(MessageHandler):
             # TODO Try 1m with shorter interval.
             fc = finnhub.Client(api_key=FinnHubKey)
             now = datetime.utcnow()
-            start = now - timedelta(hours=28)
+            start = now - timedelta(hours=24)
             res = fc.stock_candles(
                 m.symbol,
                 "5",
