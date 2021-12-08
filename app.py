@@ -167,7 +167,7 @@ async def assemble_stock_view_model(stock: Stock):
         three_months=price_range(three_months),
         one_year=price_range(one_year),
         noted_prices=stock.notes.prices,
-        has_candles=stock.candles_time > 0,
+        has_candles=not not stock.price_times.candles,
         notes=[
             dict(
                 symbol=n.symbol,

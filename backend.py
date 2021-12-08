@@ -102,13 +102,17 @@ class Notes:
 
 
 @dataclass
+class PriceTimes:
+    daily: Optional[datetime] = None
+    candles: Optional[datetime] = None
+
+
+@dataclass
 class Stock:
     symbol: str
     info: Optional[SymbolRow]
     version: str = ""
-    daily_prices_time: float = 0
-    intraday_prices_time: float = 0
-    candles_time: float = 0
+    price_times: PriceTimes = field(default_factory=PriceTimes)
     lots: stocklots.Lots = field(default_factory=stocklots.Lots)
     notes: Notes = field(default_factory=Notes)
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -137,12 +141,18 @@ def flatten(a):
     return [leaf for sl in a for leaf in sl]
 
 
+async def load_meta() -> Dict[str, Dict[str, Any]]:
+    meta: Dict[str, Dict[str, Any]] = dict()
+    for key, path in MetaPaths.items():
+        async with aiofiles.open(path, mode="r") as file:
+            log.info(f"profile:meta {key} = {path}")
+            json_data = await file.read()
+            meta[key] = json.loads(json_data)
+    return meta
+
+
 def _load_portfolio_key(fn, user: UserKey) -> str:
-    return finish_key(
-        ["load-profile", str(user)]
-        + cache_key_from_files("lots.txt")
-        + cache_key_from_files(*[path for key, path in MetaPaths.items()]),
-    )
+    return finish_key(["load-profile", str(user)])
 
 
 @cached(key_builder=_load_portfolio_key, **Caching)
@@ -162,62 +172,26 @@ async def load_portfolio(user: UserKey) -> Portfolio:
     return Portfolio(user, all_symbols, lots, meta)
 
 
-async def load_meta() -> Dict[str, Dict[str, Any]]:
-    meta: Dict[str, Dict[str, Any]] = dict()
-    for key, path in MetaPaths.items():
-        async with aiofiles.open(path, mode="r") as file:
-            log.info(f"profile:meta {key} = {path}")
-            json_data = await file.read()
-            meta[key] = json.loads(json_data)
-    return meta
-
-
-def _load_all_symbols_key(fn, user: UserKey):
-    return finish_key(["all-symbols", str(user)])
-
-
-@cached(key_builder=_load_all_symbols_key, **Caching)
 async def load_all_symbols(user: UserKey):
     db = SymbolStorage()
     db.open()
     return db.get_all_symbols(user)
 
 
-def _load_all_notes_key(fn, user: UserKey):
-    return finish_key(["all-notes", str(user)] + cache_key_from_files("feevee.db"))
-
-
-@cached(key_builder=_load_all_notes_key, **Caching)
 async def load_all_notes(user: UserKey):
     db = SymbolStorage()
     db.open()
     return db.get_all_notes(user)
 
 
-def _load_symbol_info_key(fn, symbol: str, user: UserKey):
-    return finish_key(
-        ["symbol-info", symbol, str(user)] + cache_key_from_files("feevee.db")
-    )
-
-
-@cached(key_builder=_load_symbol_info_key, **Caching)
-async def load_symbol_info(symbol: str, user: UserKey):
+async def load_symbol_info(user: UserKey, symbol: str):
     all_symbols = await load_all_symbols(user)
     if symbol in all_symbols:
         return all_symbols[symbol]
     return None
 
 
-def _load_symbol_notes_key(fn, symbol: str, user: UserKey) -> str:
-    return finish_key(
-        ["symbol-notes", symbol, str(user)]
-        + cache_key_from_files(
-            "feevee.db",
-        )
-    )
-
-
-def _parse_symbol_notes(rows: List[NoteRow]) -> Notes:
+async def _parse_symbol_notes(rows: List[NoteRow]) -> Notes:
     if len(rows) == 0:
         return Notes()
     tags_pattern = re.compile("#\s*(\S+)")
@@ -229,33 +203,13 @@ def _parse_symbol_notes(rows: List[NoteRow]) -> Notes:
     return Notes(rows, notes, tags_match, prices)
 
 
-@cached(key_builder=_load_symbol_notes_key, **Caching)
-async def load_symbol_notes(symbol: str, user: UserKey) -> Notes:
+async def load_symbol_notes(user: UserKey, symbol: str) -> Notes:
     all_notes = await load_all_notes(user)
     if symbol in all_notes:
-        return _parse_symbol_notes(all_notes[symbol])
+        return await _parse_symbol_notes(all_notes[symbol])
     return Notes()
 
 
-@dataclass
-class PriceTimes:
-    daily: Optional[datetime] = None
-    candles: Optional[datetime] = None
-
-
-def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
-    return finish_key(
-        [str(fn), str(portfolio.user), symbol]
-        + cache_key_from_files(
-            charts.get_relative_daily_prices_path(symbol),
-            charts.get_relative_candles_path(symbol),
-            "feevee.db",
-            "lots.txt",
-        )
-    )
-
-
-@cached(key_builder=_load_stock_key, **Caching)
 async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTimes:
     daily = await load_daily_symbol_prices(symbol)
     candles = await load_symbol_candles(symbol)
@@ -264,31 +218,23 @@ async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTime
     return PriceTimes(daily_time, candles_time)
 
 
+def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
+    return finish_key(
+        [str(fn), str(portfolio.user), symbol]
+        + cache_key_from_files(
+            charts.get_relative_daily_prices_path(symbol),
+            charts.get_relative_candles_path(symbol),
+        )
+    )
+
+
 @cached(key_builder=_load_stock_key, **Caching)
 async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
-    info = await load_symbol_info(symbol, portfolio.user)
-    notes = await load_symbol_notes(symbol, portfolio.user)
-    daily_prices_time = charts.get_file_mtime(
-        os.path.join(MoneyCache, charts.get_relative_daily_prices_path(symbol))
-    )
-    intraday_prices_time = charts.get_file_mtime(
-        os.path.join(MoneyCache, charts.get_relative_intraday_prices_path(symbol))
-    )
-    candles_time = charts.get_file_mtime(
-        os.path.join(MoneyCache, charts.get_relative_candles_path(symbol))
-    )
-    info_time = charts.get_file_mtime(os.path.join(MoneyCache, "feevee.db"))
+    info = await load_symbol_info(portfolio.user, symbol)
+    notes = await load_symbol_notes(portfolio.user, symbol)
+    price_times = await load_stock_price_times(portfolio, symbol)
     notes_time = notes.time()
-    hashing = finish_key(
-        [
-            symbol,
-            str(notes_time),
-            str(info_time),
-            str(daily_prices_time),
-            str(intraday_prices_time),
-            str(candles_time),
-        ]
-    )
+    hashing = finish_key([symbol, str(notes_time), str(price_times)])
 
     def get_meta(sub_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if symbol in sub_meta:
@@ -303,9 +249,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
         symbol,
         info,
         version,
-        daily_prices_time,
-        intraday_prices_time,
-        candles_time,
+        price_times,
         portfolio.lots,
         notes,
         meta,
@@ -460,7 +404,7 @@ class StockSorter:
                 if stock.tagged(tag):
                     p = priority
                     break
-            return (p, stock.candles_time)
+            return (p, stock.price_times.candles)
 
         return sorted(stocks, key=get_sort_key)
 
@@ -477,7 +421,7 @@ class ManageDailies(MessageHandler):
         portfolio: Portfolio,
         stocks: List[Stock],
     ) -> None:
-        missing = [s for s in stocks if s.daily_prices_time == 0]
+        missing = [s for s in stocks if s.price_times.daily is None]
         if missing:
             log.info(f"queue:dailies {[s.symbol for s in missing]}")
         for stock in missing:

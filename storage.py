@@ -1,5 +1,5 @@
 from typing import List, Optional, Any, Dict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 import sqlite3, os, logging
@@ -12,6 +12,10 @@ log = logging.getLogger("storage")
 class UserKey:
     uid: int
     generation: str
+    symbols: Dict[str, str] = field(default_factory=dict)
+
+    def __str__(self):
+        return f"UserKey<{self.uid}, {self.generation}, {len(self.symbols.keys())}>"
 
 
 @dataclass
@@ -79,8 +83,9 @@ class SymbolStorage:
         self.db.close()
 
     def get_user_key_by_user_id(self, user_id: int) -> List[UserKey]:
+        symbol_keys = self._get_user_symbol_keys(user_id)
         return [
-            UserKey(row[0], str(row[1]))
+            UserKey(row[0], str(row[1]), symbol_keys)
             for row in self.dbc.execute(
                 "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ? GROUP BY users.id, users.modified",
                 [user_id],
@@ -152,6 +157,15 @@ class SymbolStorage:
                 )
             )
         return notes
+
+    def _get_user_symbol_keys(self, user_id: int) -> Dict[str, str]:
+        keys = {}
+        for row in self.dbc.execute(
+            "SELECT symbol, MAX(notes.created) AS key FROM notes WHERE user_id = ? GROUP BY symbol",
+            [user_id],
+        ):
+            keys[row[0]] = row[1]
+        return keys
 
     def get_all_notes(self, user_key: UserKey) -> Dict[str, List[NoteRow]]:
         notes = {}
