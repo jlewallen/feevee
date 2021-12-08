@@ -210,11 +210,15 @@ async def load_symbol_notes(user: UserKey, symbol: str) -> Notes:
 
 
 async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTimes:
-    daily = await load_daily_symbol_prices(symbol)
-    candles = await load_symbol_candles(symbol)
-    daily_time = daily.daily.index[-1] if len(daily.daily.index) > 0 else None
-    candles_time = candles.candles[-1].time if len(candles.candles) > 0 else None
-    return PriceTimes(daily_time, candles_time)
+    try:
+        daily = await load_daily_symbol_prices(symbol)
+        candles = await load_symbol_candles(symbol)
+        daily_time = daily.daily.index[-1] if len(daily.daily.index) > 0 else None
+        candles_time = candles.candles[-1].time if len(candles.candles) > 0 else None
+        return PriceTimes(daily_time, candles_time)
+    except FileNotFoundError:
+        log.warning(f"price-times: files missing")
+        return PriceTimes()
 
 
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
