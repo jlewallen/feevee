@@ -176,29 +176,29 @@ async def load_meta() -> Dict[str, Dict[str, Any]]:
 
 
 def _load_all_symbols_key(fn):
-    return finish_key(["all-symbols"] + cache_key_from_files("symbols.db"))
+    return finish_key(["all-symbols"] + cache_key_from_files("feevee.db"))
 
 
 @cached(key_builder=_load_all_symbols_key, **Caching)
 async def load_all_symbols():
     db = SymbolStorage()
-    db.open(name="symbols.db")
+    db.open()
     return db.get_all_symbols()
 
 
 def _load_all_notes_key(fn):
-    return finish_key(["all-notes"] + cache_key_from_files("notes.db"))
+    return finish_key(["all-notes"] + cache_key_from_files("feevee.db"))
 
 
 @cached(key_builder=_load_all_notes_key, **Caching)
 async def load_all_notes():
     db = SymbolStorage()
-    db.open(name="notes.db")
+    db.open()
     return db.get_all_notes()
 
 
 def _load_symbol_info_key(fn, symbol: str):
-    return finish_key([symbol] + cache_key_from_files("symbols.db"))
+    return finish_key(["symbol-info", symbol] + cache_key_from_files("feevee.db"))
 
 
 @cached(key_builder=_load_symbol_info_key, **Caching)
@@ -211,9 +211,9 @@ async def load_symbol_info(symbol: str):
 
 def _load_symbol_notes_key(fn, symbol: str) -> str:
     return finish_key(
-        [symbol]
+        ["symbol-notes", symbol]
         + cache_key_from_files(
-            "notes.db",
+            "feevee.db",
         )
     )
 
@@ -251,8 +251,7 @@ def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
         + cache_key_from_files(
             charts.get_relative_daily_prices_path(symbol),
             charts.get_relative_candles_path(symbol),
-            "symbols.db",
-            "notes.db",
+            "feevee.db",
             "lots.txt",
         )
     )
@@ -280,7 +279,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
     candles_time = charts.get_file_mtime(
         os.path.join(MoneyCache, charts.get_relative_candles_path(symbol))
     )
-    info_time = charts.get_file_mtime(os.path.join(MoneyCache, "symbols.db"))
+    info_time = charts.get_file_mtime(os.path.join(MoneyCache, "feevee.db"))
     notes_time = notes.time()
     hashing = finish_key(
         [
@@ -795,7 +794,7 @@ class SymbolRepository:
 
     async def save_notes(self, symbol: str, noted_price: str, body: str):
         db = SymbolStorage()
-        db.open(name="notes.db")
+        db.open()
         notes = db.get_notes(symbol)
         if len(notes) == 0 or notes[0].body != body:
             db.add_notes(symbol, datetime.utcnow(), Decimal(noted_price), None, body)

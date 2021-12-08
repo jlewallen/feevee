@@ -44,10 +44,29 @@ class NoteRow:
 
 
 class SymbolStorage:
-    def open(self, path: Optional[str] = None, name: str = "symbols.db"):
+    def open(self, path: Optional[str] = None, name: str = "feevee.db"):
         path = os.path.join(path if path else os.environ["MONEY_CACHE"], name)
         self.db = sqlite3.connect(path)
         self.dbc = self.db.cursor()
+        self.dbc.execute(
+            "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, created DATETIME NOT NULL, modified DATETIME NOT NULL, email TEXT NOT NULL, password TEXT NOT NULL)"
+        )
+        self.dbc.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users (email)"
+        )
+        self.dbc.execute(
+            "CREATE TABLE IF NOT EXISTS user_symbol (user_id INTEGER NOT NULL REFERENCES users(id), symbol TEXT NOT NULL)"
+        )
+        self.dbc.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS user_symbol_idx ON user_symbol (user_id, symbol)"
+        )
+        self.dbc.execute(
+            "CREATE TABLE IF NOT EXISTS user_lot (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), symbol TEXT NOT NULL, purchased DATETIME NOT NULL, quantity TEXT NOT NULL, price TEXT NOT NULL)"
+        )
+        self.dbc.execute(
+            "CREATE INDEX IF NOT EXISTS user_lot_idx ON user_lot (user_id, symbol)"
+        )
+
         self.dbc.execute(
             "CREATE TABLE IF NOT EXISTS symbols (symbol TEXT NOT NULL, modified DATETIME NOT NULL, data TEXT NOT NULL)"
         )
