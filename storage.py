@@ -66,6 +66,12 @@ class SymbolStorage:
         self.dbc.execute(
             "CREATE INDEX IF NOT EXISTS user_lot_idx ON user_lot (user_id, symbol)"
         )
+        self.dbc.execute(
+            "CREATE TABLE IF NOT EXISTS user_lot_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), modified DATETIME NOT NULL, body TEXT NOT NULL)"
+        )
+        self.dbc.execute(
+            "CREATE INDEX IF NOT EXISTS user_lot_ledger_idx ON user_lot_ledger (user_id)"
+        )
 
         self.dbc.execute(
             "CREATE TABLE IF NOT EXISTS symbols (symbol TEXT NOT NULL, modified DATETIME NOT NULL, data TEXT NOT NULL)"
