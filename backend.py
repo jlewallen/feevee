@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
-from storage import SymbolStorage, SymbolRow, NoteRow
+from storage import UserId, SymbolStorage, SymbolRow, NoteRow
 from alpha_vantage.timeseries import TimeSeries
 from asyncio_throttle import Throttler, throttler  # type: ignore
 from datetime import datetime, timedelta
@@ -82,6 +82,7 @@ class TagPriority:
 
 @dataclass
 class Portfolio:
+    user_id: UserId
     symbols: List[str]
     slow: List[str]
     lots: stocklots.Lots
@@ -134,15 +135,16 @@ def flatten(a):
     return [leaf for sl in a for leaf in sl]
 
 
-def _load_portfolio_key(fn) -> str:
+def _load_portfolio_key(fn, user_id: UserId) -> str:
     return finish_key(
-        cache_key_from_files("lots.txt", "stocks.json")
+        ["load-profile", str(user_id)]
+        + cache_key_from_files("lots.txt", "stocks.json")
         + cache_key_from_files(*[path for key, path in MetaPaths.items()]),
     )
 
 
 @cached(key_builder=_load_portfolio_key, **Caching)
-async def load_portfolio() -> Portfolio:
+async def load_portfolio(user_id: UserId) -> Portfolio:
     log.info(f"profile:reading stocks.json")
     async with aiofiles.open(os.path.join(MoneyCache, "stocks.json"), mode="r") as file:
         stocks_json = json.loads(await file.read())
@@ -162,7 +164,7 @@ async def load_portfolio() -> Portfolio:
     if "FEEVEE_SYMBOLS" in os.environ:
         all_symbols = os.environ["FEEVEE_SYMBOLS"].split(" ")
 
-    return Portfolio(all_symbols, slow_symbols, lots, meta)
+    return Portfolio(user_id, all_symbols, slow_symbols, lots, meta)
 
 
 async def load_meta() -> Dict[str, Dict[str, Any]]:
@@ -175,43 +177,45 @@ async def load_meta() -> Dict[str, Dict[str, Any]]:
     return meta
 
 
-def _load_all_symbols_key(fn):
-    return finish_key(["all-symbols"] + cache_key_from_files("feevee.db"))
+def _load_all_symbols_key(fn, user_id: UserId):
+    return finish_key(["all-symbols", str(user_id)] + cache_key_from_files("feevee.db"))
 
 
 @cached(key_builder=_load_all_symbols_key, **Caching)
-async def load_all_symbols():
+async def load_all_symbols(user_id: UserId):
     db = SymbolStorage()
     db.open()
-    return db.get_all_symbols()
+    return db.get_all_symbols(user_id)
 
 
-def _load_all_notes_key(fn):
-    return finish_key(["all-notes"] + cache_key_from_files("feevee.db"))
+def _load_all_notes_key(fn, user_id: UserId):
+    return finish_key(["all-notes", str(user_id)] + cache_key_from_files("feevee.db"))
 
 
 @cached(key_builder=_load_all_notes_key, **Caching)
-async def load_all_notes():
+async def load_all_notes(user_id: UserId):
     db = SymbolStorage()
     db.open()
-    return db.get_all_notes()
+    return db.get_all_notes(user_id)
 
 
-def _load_symbol_info_key(fn, symbol: str):
-    return finish_key(["symbol-info", symbol] + cache_key_from_files("feevee.db"))
+def _load_symbol_info_key(fn, symbol: str, user_id: UserId):
+    return finish_key(
+        ["symbol-info", symbol, str(user_id)] + cache_key_from_files("feevee.db")
+    )
 
 
 @cached(key_builder=_load_symbol_info_key, **Caching)
-async def load_symbol_info(symbol: str):
-    all_symbols = await load_all_symbols()
+async def load_symbol_info(symbol: str, user_id: UserId):
+    all_symbols = await load_all_symbols(user_id)
     if symbol in all_symbols:
         return all_symbols[symbol]
     return None
 
 
-def _load_symbol_notes_key(fn, symbol: str) -> str:
+def _load_symbol_notes_key(fn, symbol: str, user_id: UserId) -> str:
     return finish_key(
-        ["symbol-notes", symbol]
+        ["symbol-notes", symbol, str(user_id)]
         + cache_key_from_files(
             "feevee.db",
         )
@@ -231,8 +235,8 @@ def _parse_symbol_notes(rows: List[NoteRow]) -> Notes:
 
 
 @cached(key_builder=_load_symbol_notes_key, **Caching)
-async def load_symbol_notes(symbol: str) -> Notes:
-    all_notes = await load_all_notes()
+async def load_symbol_notes(symbol: str, user_id: UserId) -> Notes:
+    all_notes = await load_all_notes(user_id)
     if symbol in all_notes:
         return _parse_symbol_notes(all_notes[symbol])
     return Notes()
@@ -246,8 +250,7 @@ class PriceTimes:
 
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
     return finish_key(
-        [str(fn)]
-        + [symbol]
+        [str(fn), str(portfolio.user_id), symbol]
         + cache_key_from_files(
             charts.get_relative_daily_prices_path(symbol),
             charts.get_relative_candles_path(symbol),
@@ -268,8 +271,8 @@ async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTime
 
 @cached(key_builder=_load_stock_key, **Caching)
 async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
-    info = await load_symbol_info(symbol)
-    notes = await load_symbol_notes(symbol)
+    info = await load_symbol_info(symbol, portfolio.user_id)
+    notes = await load_symbol_notes(symbol, portfolio.user_id)
     daily_prices_time = charts.get_file_mtime(
         os.path.join(MoneyCache, charts.get_relative_daily_prices_path(symbol))
     )
@@ -318,6 +321,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
 
 @dataclass
 class SymbolMessage:
+    user_id: UserId
     symbol: str
 
 
@@ -484,7 +488,9 @@ class ManageDailies(MessageHandler):
         if missing:
             log.info(f"queue:dailies {[s.symbol for s in missing]}")
         for stock in missing:
-            await messages.push(RefreshDailyMessage(stock.symbol, maximum_age=0))
+            await messages.push(
+                RefreshDailyMessage(portfolio.user_id, stock.symbol, maximum_age=0)
+            )
 
         # This is an easy way of seeing if it's one hour after today's bell,
         # which is when we start to care about this.
@@ -500,7 +506,9 @@ class ManageDailies(MessageHandler):
                     if self.touched.can_touch(s.symbol, timedelta(minutes=60)):
                         log.info(f"{s.symbol:6} daily:queue {price_times}")
                         await messages.push(
-                            RefreshDailyMessage(s.symbol, maximum_age=0)
+                            RefreshDailyMessage(
+                                portfolio.user_id, s.symbol, maximum_age=0
+                            )
                         )
                         self.touched.touch(s.symbol)
 
@@ -529,7 +537,7 @@ class ManageDailies(MessageHandler):
 
             log.info(f"{m.symbol:6} daily:wrote")
 
-        await messages.push(RefreshChartsMessage(m.symbol))
+        await messages.push(RefreshChartsMessage(m.user_id, m.symbol))
 
 
 def get_backup_path(path: str) -> str:
@@ -599,7 +607,7 @@ class ManageCandles(MessageHandler):
         if symbols:
             log.info(f"queue:candles {symbols}")
         for symbol in symbols:
-            await messages.push(RefreshCandlesMessage(symbol))
+            await messages.push(RefreshCandlesMessage(portfolio.user_id, symbol))
             self.touched.touch(symbol)
 
     async def _append_candles(self, m: SymbolMessage, res: Dict[str, Any]):
@@ -655,7 +663,7 @@ class ManageCandles(MessageHandler):
         except:
             log.exception(f"{m.symbol:6} candles:error")
 
-        await messages.push(RefreshChartsMessage(m.symbol))
+        await messages.push(RefreshChartsMessage(m.user_id, m.symbol))
 
 
 @dataclass
@@ -729,11 +737,10 @@ class RefreshQueue(MessagePublisher):
     async def _opening(self):
         log.info(f"bell-opening:ding")
 
-    async def _minute(self):
-        log.info(f"minute")
-        portfolio = await load_portfolio()
+    async def _user_minute(self, user_id: UserId):
+        portfolio = await load_portfolio(user_id)
 
-        stocks = await self.repository.get_all_stocks()
+        stocks = await self.repository.get_all_stocks(user_id)
 
         return await asyncio.gather(
             self.candles.handler.service(self, portfolio, stocks),
@@ -741,11 +748,24 @@ class RefreshQueue(MessagePublisher):
             self.indicators.handler.service(self, portfolio, stocks),
         )
 
+    async def _minute(self):
+        log.info(f"minute")
+        db = SymbolStorage()
+        db.open()
+        user_ids = db.get_all_user_ids()
+        return asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
+
+    async def _user_closing(self, user_id: UserId):
+        portfolio = await load_portfolio(user_id)
+        for symbol in portfolio.symbols:
+            await self.push(RefreshDailyMessage(user_id, symbol, maximum_age=0))
+
     async def _closing(self):
         log.info(f"bell-closing:ding")
-        portfolio = await load_portfolio()
-        for symbol in portfolio.symbols:
-            await self.push(RefreshDailyMessage(symbol, maximum_age=0))
+        db = SymbolStorage()
+        db.open()
+        user_ids = db.get_all_user_ids()
+        return asyncio.gather(*[self._user_closing(user_id) for user_id in user_ids])
 
     async def _watch(self):
         while True:
@@ -780,25 +800,32 @@ class RefreshQueue(MessagePublisher):
 
 @dataclass
 class SymbolRepository:
-    async def get_all_stocks(self) -> List[Stock]:
-        portfolio = await load_portfolio()
+    async def get_all_stocks(self, user_id: UserId) -> List[Stock]:
+        portfolio = await load_portfolio(user_id)
         return await asyncio.gather(
-            *[self.get_stock(symbol, portfolio) for symbol in portfolio.symbols]
+            *[
+                self.get_stock(user_id, symbol, portfolio)
+                for symbol in portfolio.symbols
+            ]
         )
 
     async def get_stock(
-        self, symbol: str, portfolio: Optional[Portfolio] = None
+        self, user_id: UserId, symbol: str, portfolio: Optional[Portfolio] = None
     ) -> Stock:
-        portfolio = portfolio if portfolio else await load_portfolio()
+        portfolio = portfolio if portfolio else await load_portfolio(user_id)
         return await load_stock(portfolio, symbol)
 
-    async def save_notes(self, symbol: str, noted_price: str, body: str):
+    async def save_notes(
+        self, user_id: UserId, symbol: str, noted_price: str, body: str
+    ):
         db = SymbolStorage()
         db.open()
-        notes = db.get_notes(symbol)
+        notes = db.get_notes(user_id, symbol)
         if len(notes) == 0 or notes[0].body != body:
-            db.add_notes(symbol, datetime.utcnow(), Decimal(noted_price), None, body)
-        return await self.get_stock(symbol)
+            db.add_notes(
+                user_id, symbol, datetime.utcnow(), Decimal(noted_price), None, body
+            )
+        return await self.get_stock(user_id, symbol)
 
 
 @dataclass
@@ -933,12 +960,12 @@ def _load_symbol_candles_key(fn, symbol: str) -> str:
 async def load_symbol_candles(symbol: str):
     path = os.path.join(MoneyCache, charts.get_relative_candles_path(symbol))
     if os.path.isfile(path):
-        log.info(f"{symbol:6} candles:loading")
+        log.debug(f"{symbol:6} candles:loading")
         async with aiofiles.open(path, mode="r") as file:
             parsed = json.loads(await file.read())
             return parse_candles(symbol, **parsed)
 
-    log.info(f"{symbol:6} candles:none")
+    log.debug(f"{symbol:6} candles:none")
     return Candles(symbol, [])
 
 

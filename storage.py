@@ -6,6 +6,7 @@ import sqlite3, os, logging
 import jsonpickle
 
 log = logging.getLogger("storage")
+UserId = int
 
 
 @dataclass
@@ -13,25 +14,6 @@ class SymbolRow:
     symbol: str
     modified: datetime
     data: str
-
-
-@dataclass
-class TradeRow:
-    symbol: str
-    ts: datetime
-    price: Decimal
-    quantity: Decimal
-
-
-@dataclass
-class BarRow:
-    symbol: str
-    ts: datetime
-    volume: Decimal
-    high: Decimal
-    low: Decimal
-    opening: Decimal
-    vwap: Decimal
 
 
 @dataclass
@@ -81,29 +63,18 @@ class SymbolStorage:
         )
 
         self.dbc.execute(
-            "CREATE TABLE IF NOT EXISTS bars (symbol TEXT NOT NULL, ts DATETIME NOT NULL, high DECIMAL(10, 5), low DECIMAL(10, 5), volume DECIMAL(10, 5), open DECIMAL(10, 5), vwap DECIMAL(10, 5), trade_count DECIMAL(10, 5))"
+            "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), symbol TEXT NOT NULL, created DATETIME NOT NULL, noted_price DECIMAL(10, 5) NOT NULL, future_price DECIMAL(10, 5), body TEXT NOT NULL)"
         )
         self.dbc.execute(
-            "CREATE INDEX IF NOT EXISTS bars_symbol_ts_idx ON bars (symbol, ts)"
-        )
-
-        self.dbc.execute(
-            "CREATE TABLE IF NOT EXISTS trades (symbol TEXT NOT NULL, ts DATETIME NOT NULL, price DECIMAL(10, 5), quantity DECIMAL(10, 5))"
-        )
-        self.dbc.execute(
-            "CREATE INDEX IF NOT EXISTS trades_symbol_ts_idx ON trades (symbol, ts)"
-        )
-
-        self.dbc.execute(
-            "CREATE TABLE IF NOT EXISTS notes (symbol TEXT NOT NULL, ts DATETIME NOT NULL, noted_price DECIMAL(10, 5) NOT NULL, future_price DECIMAL(10, 5), body TEXT NOT NULL)"
-        )
-        self.dbc.execute(
-            "CREATE INDEX IF NOT EXISTS notes_symbol_ts_idx ON notes (symbol, ts)"
+            "CREATE INDEX IF NOT EXISTS notes_symbol_ts_idx ON notes (user_id, symbol, created)"
         )
         self.db.commit()
 
     def close(self):
         self.db.close()
+
+    def get_all_user_ids(self) -> List[UserId]:
+        return [row[0] for row in self.dbc.execute("SELECT id FROM users")]
 
     def has_symbol(self, symbol: str):
         return self.get_symbol(symbol) is not None
@@ -115,7 +86,7 @@ class SymbolStorage:
             return SymbolRow(symbol, row[0], row[1])
         return None
 
-    def get_all_symbols(self):
+    def get_all_symbols(self, user_id: UserId):
         rows = self.dbc.execute(
             "SELECT symbol, modified, data FROM symbols ORDER BY symbol"
         )
@@ -133,85 +104,17 @@ class SymbolStorage:
         )
         self.db.commit()
 
-    def has_trade(self, symbol: str):
-        return self.get_trade(symbol) is not None
-
-    def get_trade(self, symbol: str):
-        for row in self.dbc.execute(
-            "SELECT ts, price, quantity FROM trades WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
-            [symbol],
-        ):
-            ts = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
-            return TradeRow(symbol, ts, Decimal(row[1]), Decimal(row[2]))
-        return None
-
-    def add_trade(self, symbol: str, ts: datetime, price: Decimal, quantity: Decimal):
-        self.dbc.execute(
-            "INSERT INTO trades (symbol, ts, price, quantity) VALUES (?, ?, ?, ?)",
-            [symbol, ts, price, quantity],
-        )
-        self.db.commit()
-
-    def has_bars(self, symbol: str):
-        return len(self.get_bars(symbol)) > 0
-
-    def get_bars(self, symbol: str):
-        bars = []
-        for row in self.dbc.execute(
-            "SELECT ts, volume, high, low, open, vwap FROM bars WHERE symbol = ? AND ts >= date('now', '-1 days') ORDER BY ts ASC",
-            [symbol],
-        ):
-            ts = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
-            bars.append(
-                BarRow(
-                    symbol,
-                    ts,
-                    Decimal(row[1]),
-                    Decimal(row[2]),
-                    Decimal(row[3]),
-                    Decimal(row[4]),
-                    Decimal(row[5]),
-                )
-            )
-        return bars
-
-    def add_bars(
-        self,
-        symbol: str,
-        ts: datetime,
-        high: Decimal,
-        low: Decimal,
-        volume: Decimal,
-        opening: Decimal,
-        vwap: Decimal,
-        trade_count: Decimal,
-    ):
-        self.dbc.execute(
-            "INSERT INTO bars (symbol, ts, high, low, volume, open, vwap, trade_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                symbol,
-                ts,
-                str(high),
-                str(low),
-                str(volume),
-                str(opening),
-                str(vwap),
-                str(trade_count),
-            ],
-        )
-        self.db.commit()
-
-    def get_notes(self, symbol: str):
+    def get_notes(self, user_id: UserId, symbol: str):
         notes = []
         for row in self.dbc.execute(
-            "SELECT ts, noted_price, future_price, body FROM notes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
-            [symbol],
+            "SELECT created, noted_price, future_price, body FROM notes WHERE user_id = ? AND symbol = ? ORDER BY created DESC LIMIT 1",
+            [user_id, symbol],
         ):
-            ts = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
+            created = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
             notes.append(
                 NoteRow(
                     symbol,
-                    ts,
+                    created,
                     Decimal(row[1]),
                     Decimal(row[2]) if row[2] else None,
                     row[3],
@@ -219,19 +122,20 @@ class SymbolStorage:
             )
         return notes
 
-    def get_all_notes(self) -> Dict[str, List[NoteRow]]:
+    def get_all_notes(self, user_id: UserId) -> Dict[str, List[NoteRow]]:
         notes = {}
         for row in self.dbc.execute(
-            "SELECT symbol, ts, noted_price, future_price, body FROM notes ORDER BY ts DESC",
+            "SELECT symbol, created, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY created DESC",
+            [user_id],
         ):
             symbol = row[0]
             if symbol in notes:
                 continue
 
-            ts = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
+            created = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
             note_row = NoteRow(
                 symbol,
-                ts,
+                created,
                 Decimal(row[2]),
                 Decimal(row[3]) if row[3] else None,
                 row[4],
@@ -241,17 +145,19 @@ class SymbolStorage:
 
     def add_notes(
         self,
+        user_id: UserId,
         symbol: str,
-        ts: datetime,
+        created: datetime,
         noted_price: Decimal,
         future_price: Optional[Decimal],
         body: str,
     ):
         self.dbc.execute(
-            "INSERT INTO notes (symbol, ts, noted_price, future_price, body) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO notes (user_id, symbol, created, noted_price, future_price, body) VALUES (?, ?, ?, ?, ?, ?)",
             [
+                user_id,
                 symbol,
-                ts,
+                created,
                 str(noted_price),
                 str(future_price) if future_price else None,
                 body,

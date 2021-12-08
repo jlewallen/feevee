@@ -33,6 +33,7 @@ from backend import (
     load_symbol_candles,
     load_months_of_symbol_prices,
 )
+from storage import UserId
 
 
 def _assemble_stock_view_model_key(fn, stock: Stock) -> str:
@@ -317,7 +318,7 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
 
     async def handle(self, messages: MessagePublisher, m: SymbolMessage):
         log.info(f"{m.symbol:6} web-charts:begin")
-        stock = await repository.get_stock(m.symbol)
+        stock = await repository.get_stock(m.user_id, m.symbol)
         for template in self.templates:
             for theme in Themes:
                 for months in [4, 12]:
@@ -360,13 +361,16 @@ web_charts = WebChartsCacheWarmer()
 refreshing = RefreshQueue(
     repository, candles, dailies, MessageWorker(web_charts, concurrency=5), indicators
 )
+AdministratorUserId = 1
 
 
 @app.route("/status")
 async def status():
+    user_id = AdministratorUserId
+
     await refreshing.start()
 
-    stocks = await repository.get_all_stocks()
+    stocks = await repository.get_all_stocks(user_id)
     view_models = [assemble_stock_view_model(stock) for stock in stocks]
     symbols = await asyncio.gather(*view_models)
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
@@ -385,20 +389,21 @@ async def clear():
 
 @app.route("/render")
 async def render():
-    stocks = await repository.get_all_stocks()
+    user_id = AdministratorUserId
+    stocks = await repository.get_all_stocks(user_id)
     for stock in stocks:
-        await refreshing.push(RefreshChartsMessage(stock.symbol))
+        await refreshing.push(RefreshChartsMessage(user_id, stock.symbol))
 
     return dict()
 
 
-async def _basic_refresh(symbol: str):
+async def _basic_refresh(user_id: UserId, symbol: str):
     if request.args.get("daily"):
-        await refreshing.push(RefreshDailyMessage(symbol))
+        await refreshing.push(RefreshDailyMessage(user_id, symbol))
     if request.args.get("candles"):
-        await refreshing.push(RefreshCandlesMessage(symbol))
+        await refreshing.push(RefreshCandlesMessage(user_id, symbol))
     if request.args.get("indicators"):
-        await refreshing.push(RefreshIndicatorsMessage(symbol))
+        await refreshing.push(RefreshIndicatorsMessage(user_id, symbol))
 
 
 @app.route("/symbols", methods=["POST"])
@@ -408,44 +413,53 @@ async def add_symbols():
 
 @app.route("/symbols/refresh")
 async def refresh_symbols():
+    user_id = AdministratorUserId
+
     await refreshing.start()
 
-    stocks = await repository.get_all_stocks()
+    stocks = await repository.get_all_stocks(user_id)
     for stock in stocks:
-        await _basic_refresh(stock.symbol)
+        await _basic_refresh(user_id, stock.symbol)
 
     return dict()
 
 
 @app.route("/symbols/<symbol>/refresh")
 async def refresh_symbol(symbol: str):
-    await _basic_refresh(symbol)
+    user_id = AdministratorUserId
+
+    await _basic_refresh(user_id, symbol)
 
     return dict()
 
 
 @app.route("/symbols/<symbol>/ohlc/<int:months>/<int:w>/<int:h>/<style>")
 async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
+    user_id = AdministratorUserId
+
     await web_charts.include_template(w, h)
-    stock = await repository.get_stock(symbol)
+    stock = await repository.get_stock(user_id, symbol)
     return await render_ohlc(stock, months, w, h, style)
 
 
 @app.route("/symbols/<symbol>/candles/<int:w>/<int:h>/<style>")
 async def get_candles(symbol: str, w: int, h: int, style: str):
-    stock = await repository.get_stock(symbol)
+    user_id = AdministratorUserId
+
+    stock = await repository.get_stock(user_id, symbol)
     return await render_candles(stock, w, h, style)
 
 
 @app.route("/symbols/<symbol>/notes", methods=["POST"])
 async def notes(symbol: str):
+    user_id = AdministratorUserId
     raw = await request.get_data()
     parsed = json.loads(raw)
-    stock = await repository.get_stock(symbol)
+    stock = await repository.get_stock(user_id, symbol)
     if parsed["body"]:
         log.info(f"{symbol:6} notes:saving {stock.key()}")
         stock = await repository.save_notes(
-            symbol, parsed["notedPrice"], parsed["body"]
+            user_id, symbol, parsed["notedPrice"], parsed["body"]
         )
         log.info(f"{symbol:6} notes:saved {stock.key()}")
     return await assemble_stock_view_model(stock)
