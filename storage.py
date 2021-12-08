@@ -6,7 +6,12 @@ import sqlite3, os, logging
 import jsonpickle
 
 log = logging.getLogger("storage")
-UserId = int
+
+
+@dataclass
+class UserKey:
+    uid: int
+    generation: str
 
 
 @dataclass
@@ -73,8 +78,19 @@ class SymbolStorage:
     def close(self):
         self.db.close()
 
-    def get_all_user_ids(self) -> List[UserId]:
-        return [row[0] for row in self.dbc.execute("SELECT id FROM users")]
+    def get_user_key_by_user_id(self, user_id: int) -> List[UserKey]:
+        return [
+            UserKey(row[0], str(row[1]))
+            for row in self.dbc.execute(
+                "SELECT id, modified FROM users WHERE id = ?", [user_id]
+            )
+        ]
+
+    def get_all_user_keys(self) -> List[UserKey]:
+        return [
+            UserKey(row[0], str(row[1]))
+            for row in self.dbc.execute("SELECT id, modified FROM users")
+        ]
 
     def has_symbol(self, symbol: str):
         return self.get_symbol(symbol) is not None
@@ -86,7 +102,7 @@ class SymbolStorage:
             return SymbolRow(symbol, row[0], row[1])
         return None
 
-    def get_all_symbols(self, user_id: UserId):
+    def get_all_symbols(self, user_key: UserKey):
         rows = self.dbc.execute(
             "SELECT symbol, modified, data FROM symbols ORDER BY symbol"
         )
@@ -104,11 +120,11 @@ class SymbolStorage:
         )
         self.db.commit()
 
-    def get_notes(self, user_id: UserId, symbol: str):
+    def get_notes(self, user_key: UserKey, symbol: str):
         notes = []
         for row in self.dbc.execute(
             "SELECT created, noted_price, future_price, body FROM notes WHERE user_id = ? AND symbol = ? ORDER BY created DESC LIMIT 1",
-            [user_id, symbol],
+            [user_key.uid, symbol],
         ):
             created = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
             notes.append(
@@ -122,11 +138,11 @@ class SymbolStorage:
             )
         return notes
 
-    def get_all_notes(self, user_id: UserId) -> Dict[str, List[NoteRow]]:
+    def get_all_notes(self, user_key: UserKey) -> Dict[str, List[NoteRow]]:
         notes = {}
         for row in self.dbc.execute(
             "SELECT symbol, created, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY created DESC",
-            [user_id],
+            [user_key.uid],
         ):
             symbol = row[0]
             if symbol in notes:
@@ -145,7 +161,7 @@ class SymbolStorage:
 
     def add_notes(
         self,
-        user_id: UserId,
+        user_key: UserKey,
         symbol: str,
         created: datetime,
         noted_price: Decimal,
@@ -155,7 +171,7 @@ class SymbolStorage:
         self.dbc.execute(
             "INSERT INTO notes (user_id, symbol, created, noted_price, future_price, body) VALUES (?, ?, ?, ?, ?, ?)",
             [
-                user_id,
+                user_key.uid,
                 symbol,
                 created,
                 str(noted_price),
@@ -163,4 +179,16 @@ class SymbolStorage:
                 body,
             ],
         )
+
+        # self._user_modified(user_key)
+
         self.db.commit()
+
+    def _user_modified(self, user_key: UserKey):
+        self.dbc.execute(
+            "UPDATE users SET modified = ? WHERE id = ?",
+            [
+                datetime.utcnow(),
+                user_key.uid,
+            ],
+        )
