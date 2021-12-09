@@ -23,7 +23,7 @@
             "propagate": false
         },
         "asyncio": {
-            "level": "DEBUG",
+            "level": "INFO",
             "handlers": [
                 "console"
             ],

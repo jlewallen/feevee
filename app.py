@@ -33,7 +33,8 @@ from backend import (
     load_symbol_candles,
     load_months_of_symbol_prices,
 )
-from storage import SymbolStorage, UserKey, get_db
+from loggers import setup_logging_queue
+from storage import UserKey, get_db
 
 
 @dataclass
@@ -503,4 +504,5 @@ def rounding(v: Decimal) -> Decimal:
 
 
 def factory():
+    setup_logging_queue()
     return app
