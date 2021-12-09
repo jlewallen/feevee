@@ -15,69 +15,39 @@
         }
     },
     "loggers": {
-        "dimsum": {
+        "feevee": {
             "level": "INFO",
-            "handlers": ["console"],
+            "handlers": [
+                "console"
+            ],
             "propagate": false
         },
-        "dimsum.bus": {
-            "level": "WARNING",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.schedule": {
+        "asyncio": {
             "level": "DEBUG",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.security": {
-            "level": "DEBUG",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.model.registrar": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.dynamic": {
-            "level": "DEBUG",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.dynamic.calls": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.noise": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "dimsum.security": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": false
-        },
-        "proxy": {
-            "level": "INFO",
-            "handlers": ["console"],
+            "handlers": [
+                "console"
+            ],
             "propagate": false
         },
         "uvicorn": {
             "level": "INFO",
-            "handlers": ["console"],
+            "handlers": [
+                "console"
+            ],
             "propagate": false
         },
         "uvicorn.access": {
             "level": "INFO",
-            "handlers": ["console"],
+            "handlers": [
+                "console"
+            ],
             "propagate": false
         }
     },
     "root": {
         "level": "INFO",
-        "handlers": ["console"]
+        "handlers": [
+            "console"
+        ]
     }
 }

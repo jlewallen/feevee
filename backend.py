@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
-from storage import UserKey, SymbolStorage, SymbolRow, NoteRow, UserId
+from storage import get_db, UserKey, SymbolRow, NoteRow, UserId
 from alpha_vantage.timeseries import TimeSeries
 from asyncio_throttle import Throttler, throttler  # type: ignore
 from datetime import datetime, timedelta
@@ -167,8 +167,8 @@ async def load_portfolio(user: UserKey) -> Portfolio:
 
     meta = await load_meta()
 
-    user_symbol_rows = await load_all_symbols(user)
-    all_symbols = [row.symbol for row in user_symbol_rows]
+    user_symbols = await load_all_symbols(user)
+    all_symbols = [row.symbol for row in user_symbols.values()]
 
     if "FEEVEE_SYMBOLS" in os.environ:
         all_symbols = os.environ["FEEVEE_SYMBOLS"].split(" ")
@@ -177,15 +177,13 @@ async def load_portfolio(user: UserKey) -> Portfolio:
 
 
 async def load_all_symbols(user: UserKey):
-    db = SymbolStorage()
-    db.open()
-    return db.get_all_symbols(user)
+    db = await get_db()
+    return await db.get_all_symbols(user)
 
 
 async def load_all_notes(user: UserKey):
-    db = SymbolStorage()
-    db.open()
-    return db.get_all_notes(user)
+    db = await get_db()
+    return await db.get_all_notes(user)
 
 
 async def load_symbol_info(user: UserKey, symbol: str):
@@ -243,7 +241,7 @@ def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
 
 @cached(key_builder=_load_stock_key, **Caching)
 async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
-    log.info(f"{symbol:6} key={_load_stock_key(load_stock, portfolio, symbol)}")
+    log.debug(f"{symbol:6} key={_load_stock_key(load_stock, portfolio, symbol)}")
     info = await load_symbol_info(portfolio.user, symbol)
     notes = await load_symbol_notes(portfolio.user, symbol)
     price_times = await load_stock_price_times(portfolio, symbol)
@@ -257,7 +255,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
 
     meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
 
-    version = hashlib.sha224(bytes(hashing, encoding="utf8")).hexdigest()
+    version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
     log.info(f"{symbol:6} loading stock {version}")
     return Stock(
         symbol,
@@ -689,10 +687,9 @@ class RefreshQueue(MessagePublisher):
         log.info(f"bell-opening:ding")
 
     async def _user_minute(self, user_id: UserId):
-        db = SymbolStorage()
-        db.open()
+        db = await get_db()
 
-        user = db.get_user_key_by_user_id(user_id)
+        user = await db.get_user_key_by_user_id(user_id)
 
         portfolio = await load_portfolio(user)
 
@@ -706,24 +703,21 @@ class RefreshQueue(MessagePublisher):
 
     async def _minute(self):
         log.info(f"minute")
-        db = SymbolStorage()
-        db.open()
-        user_ids = db.get_all_user_ids()
+        db = await get_db()
+        user_ids = await db.get_all_user_ids()
         return asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
 
     async def _user_closing(self, user_id: UserId):
-        db = SymbolStorage()
-        db.open()
-        user = db.get_user_key_by_user_id(user_id)
+        db = await get_db()
+        user = await db.get_user_key_by_user_id(user_id)
         portfolio = await load_portfolio(user)
         for symbol in portfolio.symbols:
             await self.push(RefreshDailyMessage(user, symbol, maximum_age=0))
 
     async def _closing(self):
         log.info(f"bell-closing:ding")
-        db = SymbolStorage()
-        db.open()
-        user_ids = db.get_all_user_ids()
+        db = await get_db()
+        user_ids = await db.get_all_user_ids()
         return asyncio.gather(*[self._user_closing(user_id) for user_id in user_ids])
 
     async def _watch(self):
@@ -732,6 +726,8 @@ class RefreshQueue(MessagePublisher):
                 await asyncio.sleep(1)
             except:
                 log.info(f"stopping")
+                db = await get_db()
+                await db.close()
                 self.charts.stop()
                 self.candles.stop()
                 self.dailies.stop()
@@ -752,6 +748,12 @@ class RefreshQueue(MessagePublisher):
             return
 
         log.info(f"queues:starting")
+
+        db = await get_db()
+
+        await db.open()
+
+        asyncio.get_event_loop().set_debug(True)
 
         await archive.get_directory(self._get_watch_dir())
 
@@ -786,22 +788,22 @@ class SymbolRepository:
         return await load_stock(portfolio, symbol)
 
     async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
-        db = SymbolStorage()
-        db.open()
+        db = await get_db()
         portfolio = await load_portfolio(user)
-        notes = db.get_notes(user, symbol)
+        notes = await db.get_notes(user, symbol)
         if len(notes) == 0 or notes[0].body != body:
-            user = db.add_notes(
+            user = await db.add_notes(
                 user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
             )
+
+            print(user)
             # HACK This isn't updating the user in Portfolio
             portfolio.user = user
         return await self.get_stock(user, symbol, portfolio)
 
     async def add_symbols(str, user: UserKey, symbols: List[str]):
-        db = SymbolStorage()
-        db.open()
-        db.add_symbols(user, symbols)
+        db = await get_db()
+        await db.add_symbols(user, symbols)
 
 
 @dataclass
@@ -932,7 +934,7 @@ def _load_symbol_candles_key(fn, symbol: str) -> str:
     )
 
 
-@cached(key_builder=_load_symbol_candles_key, **Caching)
+@cached(key_builder=_load_symbol_candles_key, cache=Cache.MEMORY)
 async def load_symbol_candles(symbol: str):
     path = os.path.join(MoneyCache, charts.get_relative_candles_path(symbol))
     if os.path.isfile(path):
@@ -952,10 +954,12 @@ def _load_daily_symbol_prices_key(fn, symbol: str) -> str:
     )
 
 
-@cached(key_builder=_load_daily_symbol_prices_key, **Caching)
+@cached(key_builder=_load_daily_symbol_prices_key, cache=Cache.MEMORY)
 async def load_daily_symbol_prices(symbol: str):
+    started = datetime.utcnow()
     prices = await charts.PriceCache(MoneyCache, symbol).load()
-    log.info(f"{symbol:6} loading prices {prices.date_range()}")
+    elapsed = datetime.utcnow() - started
+    log.info(f"{symbol:6} loading prices {prices.date_range()} elapsed={elapsed}")
     return prices
 
 
@@ -969,11 +973,15 @@ def _load_symbol_prices_key(fn, symbol: str) -> str:
     )
 
 
-@cached(key_builder=_load_symbol_prices_key, **Caching)
+@cached(key_builder=_load_symbol_prices_key, cache=Cache.MEMORY)
 async def load_symbol_prices(symbol: str):
+    started = datetime.utcnow()
     candles = await load_symbol_candles(symbol)
     daily = await load_daily_symbol_prices(symbol)
-    return _include_candles(daily, candles)
+    elapsed = datetime.utcnow() - started
+    with_candles = _include_candles(daily, candles)
+    log.info(f"{symbol:6} loaded symbol prices elapsed={elapsed}")
+    return with_candles
 
 
 async def load_months_of_symbol_prices(symbol: str, months: int):

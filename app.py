@@ -33,7 +33,7 @@ from backend import (
     load_symbol_candles,
     load_months_of_symbol_prices,
 )
-from storage import SymbolStorage, UserKey
+from storage import SymbolStorage, UserKey, get_db
 
 
 @dataclass
@@ -367,18 +367,16 @@ AdministratorUserId = 1
 async def get_user() -> UserKey:
     await refreshing.start()
 
-    db = SymbolStorage()
-    db.open()
-    maybe_user = db.get_user_key_by_user_id(AdministratorUserId)
+    db = await get_db()
+    maybe_user = await db.get_user_key_by_user_id(AdministratorUserId)
     assert maybe_user
-    log.debug(f"user: {maybe_user}")
+    log.debug(f"web:user: {maybe_user}")
     return maybe_user
 
 
 @app.route("/status")
 async def status():
     user = await get_user()
-
     stocks = await repository.get_all_stocks(user)
     view_models = [assemble_stock_view_model(stock) for stock in stocks]
     symbols = await asyncio.gather(*view_models)
@@ -453,7 +451,6 @@ async def refresh_symbol(symbol: str):
 @app.route("/symbols/<symbol>/ohlc/<int:months>/<int:w>/<int:h>/<style>")
 async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
     user = await get_user()
-
     await web_charts.include_template(w, h)
     stock = await repository.get_stock(user, symbol)
     return await render_ohlc(stock, months, w, h, style)
@@ -462,7 +459,6 @@ async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
 @app.route("/symbols/<symbol>/candles/<int:w>/<int:h>/<style>")
 async def get_candles(symbol: str, w: int, h: int, style: str):
     user = await get_user()
-
     stock = await repository.get_stock(user, symbol)
     return await render_candles(stock, w, h, style)
 

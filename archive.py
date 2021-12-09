@@ -29,7 +29,7 @@ async def _shutdown_pool(pool: concurrent.futures.ProcessPoolExecutor):
         try:
             await asyncio.sleep(1)
         except:
-            log.info(f"stopping chart pool")
+            log.info(f"stopping archive pool")
             pool.shutdown()
             break
 
