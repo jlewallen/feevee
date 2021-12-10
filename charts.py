@@ -305,7 +305,7 @@ def _render_ohlc(
         high=prices.daily[DailyHighColumn],
         low=prices.daily[DailyLowColumn],
         close=prices.daily[DailyCloseColumn],
-        line=go.ohlc.Line(width=1.5),
+        line=go.ohlc.Line(width=1.0),
         name=title,
         visible=True,
         showlegend=False,
