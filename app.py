@@ -351,7 +351,7 @@ async def status():
     user = await get_user()
     stocks = await repository.get_all_stocks(user)
     symbols = await chunked(
-        "batch-vms", stocks, lambda stock: assemble_stock_view_model(stock)
+        "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
     )
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 

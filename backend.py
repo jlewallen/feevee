@@ -248,7 +248,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
     meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
 
     version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
-    log.info(f"{symbol:6} loading stock {version}")
+    log.info(f"{symbol:6} loading stock {version} notes-time={notes_time}")
     return Stock(
         symbol,
         info,
@@ -773,7 +773,7 @@ class SymbolRepository:
     async def get_all_stocks(self, user: UserKey) -> List[Stock]:
         portfolio = await load_portfolio(user)
         return await chunked(
-            "batch-stocks",
+            "batch-db",
             portfolio.symbols,
             lambda symbol: self.get_stock(user, symbol, portfolio),
         )
@@ -793,7 +793,6 @@ class SymbolRepository:
                 user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
             )
 
-            print(user)
             # HACK This isn't updating the user in Portfolio
             portfolio.user = user
         return await self.get_stock(user, symbol, portfolio)
