@@ -72,6 +72,7 @@
       <Chart
         :symbol="symbol"
         :months="months"
+        :days="days"
         :chartW="scaleChartW"
         :chartH="chartH"
         :theme="theme"
@@ -194,6 +195,9 @@ export default {
     },
     months() {
       return this.expanded ? 12 : 4;
+    },
+    days() {
+      return this.expanded ? 3 : 2;
     },
     scaleChartW() {
       if (this.scale <= 2) {

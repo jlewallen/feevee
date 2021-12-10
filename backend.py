@@ -836,11 +836,14 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
     return copy
 
 
-async def load_symbol_candles(symbol: str) -> charts.Prices:
+async def load_days_of_symbol_candles(symbol: str, days: int) -> charts.Prices:
     symbol_prices = await pricing.get_prices(symbol)
     prices = symbol_prices.candle_prices()
-    log.debug(f"{symbol:6} candles:df")
-    return prices
+    date_range = prices.date_range()
+    trading_start = date_range[1].replace(hour=6, minute=30)
+    start = trading_start - timedelta(days=days - 1)
+    log.info(f"{symbol:6} candles:df days={days} start={trading_start}")
+    return charts.Prices(prices.symbol, prices.daily[start:])  # type:ignore
 
 
 async def load_daily_symbol_prices(symbol: str) -> charts.Prices:
@@ -854,7 +857,7 @@ async def load_daily_symbol_prices(symbol: str) -> charts.Prices:
 
 async def load_symbol_prices(symbol: str):
     started = datetime.utcnow()
-    candles = await load_symbol_candles(symbol)
+    candles = await load_days_of_symbol_candles(symbol, 1)
     daily = await load_daily_symbol_prices(symbol)
     with_candles = _include_candles(daily, candles)
     elapsed = datetime.utcnow() - started

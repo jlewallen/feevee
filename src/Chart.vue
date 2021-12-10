@@ -25,7 +25,7 @@ const makeUrl = (chart) => {
     throw new Error("invalid chart dimensions");
   if (chart.candles) {
     return makeApiUrl(
-      `/symbols/${chart.symbol}/candles/${chart.chartW}/${chart.chartH}/${chart.theme}?c=${chart.version}`
+      `/symbols/${chart.symbol}/candles/${chart.days}/${chart.chartW}/${chart.chartH}/${chart.theme}?c=${chart.version}`
     );
   }
   return makeApiUrl(
@@ -44,6 +44,7 @@ export default {
         chartW: this.chartW,
         chartH: this.chartH,
         months: this.months,
+        days: this.days,
         version: this.version,
         theme: this.theme,
       }),
@@ -57,6 +58,10 @@ export default {
     months: {
       type: Number,
       default: 3,
+    },
+    days: {
+      type: Number,
+      default: 2,
     },
     chartW: {
       type: Number,
@@ -87,6 +92,7 @@ export default {
         chartW: this.chartW,
         chartH: this.chartH,
         months: this.months,
+        days: this.days,
         version: this.version,
         theme: this.theme,
       });

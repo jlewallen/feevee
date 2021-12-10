@@ -29,7 +29,7 @@ from backend import (
     Stock,
     is_market_open,
     finish_key,
-    load_symbol_candles,
+    load_days_of_symbol_candles,
     load_months_of_symbol_prices,
 )
 from loggers import setup_logging_queue
@@ -244,14 +244,14 @@ async def _render_ohlc(
     return Response(data, mimetype="image/png")
 
 
-def _render_candles_key(fn, stock: Stock, w: int, h: int, style: str) -> str:
-    return finish_key(["candles"] + stock.key() + [str(v) for v in [w, h, style]])
+def _render_candles_key(fn, stock: Stock, days: int, w: int, h: int, style: str) -> str:
+    return finish_key(["candles"] + stock.key() + [str(v) for v in [days, w, h, style]])
 
 
 @cached(key_builder=_render_candles_key, **Caching)
-async def render_candles(stock: Stock, w: int, h: int, style: str):
+async def render_candles(stock: Stock, days: int, w: int, h: int, style: str):
     log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {style}")
-    candles = await load_symbol_candles(stock.symbol)
+    candles = await load_days_of_symbol_candles(stock.symbol, days)
     return await _render_ohlc(stock, candles, w, h, style, trading_hours_only=True)
 
 
@@ -428,11 +428,11 @@ async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
     return await render_ohlc(stock, months, w, h, style)
 
 
-@app.route("/symbols/<symbol>/candles/<int:w>/<int:h>/<style>")
-async def get_candles(symbol: str, w: int, h: int, style: str):
+@app.route("/symbols/<symbol>/candles/<int:days>/<int:w>/<int:h>/<style>")
+async def get_candles(symbol: str, days: int, w: int, h: int, style: str):
     user = await get_user()
     stock = await repository.get_stock(user, symbol)
-    return await render_candles(stock, w, h, style)
+    return await render_candles(stock, days, w, h, style)
 
 
 @app.route("/symbols/<symbol>/notes", methods=["POST"])
