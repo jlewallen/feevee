@@ -2,7 +2,7 @@ from typing import Optional, List, Sequence, Tuple, TextIO, Union
 from decimal import Decimal
 from dataclasses import dataclass
 from pandas import DataFrame, Series, read_csv
-from datetime import datetime
+from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 
 import pandas as pd
@@ -338,11 +338,33 @@ def _render_ohlc(
         fig.update_layout(annotations=annotations)
 
     if trading_hours_only:
+        date_range = prices.date_range()
+        trading_today = date_range[1].replace(hour=6, minute=30)
+        fig.update_layout(
+            xaxis=dict(
+                tickmode="array",
+                tickvals=[trading_today - timedelta(hours=24 * i) for i in range(2)],
+                ticktext=["6:30" for i in range(2)],
+            )
+        )
+
         fig.update_xaxes(
             rangebreaks=[
                 dict(bounds=["sat", "mon"]),
                 dict(bounds=[13, 6.5], pattern="hour"),
             ],
+        )
+        fig.update_layout(
+            xaxis_tickformatstops=[
+                dict(dtickrange=[None, 1000], value="%H:%M:%S.%L ms"),
+                dict(dtickrange=[1000, 60000], value="%H:%M:%S s"),
+                dict(dtickrange=[60000, 3600000], value="%H:%M m"),
+                dict(dtickrange=[3600000, 86400000], value="%H:%M h"),
+                dict(dtickrange=[86400000, 604800000], value="%e. %b d"),
+                dict(dtickrange=[604800000, "M1"], value="%e. %b w"),
+                dict(dtickrange=["M1", "M12"], value="%b '%y M"),
+                dict(dtickrange=["M12", None], value="%Y Y"),
+            ]
         )
 
     fig.update_layout(
