@@ -28,13 +28,12 @@ from backend import (
     Stock,
     is_market_open,
     finish_key,
-    load_symbol_prices,
     load_symbol_candles,
     load_months_of_symbol_prices,
 )
 from loggers import setup_logging_queue
 from storage import UserKey, get_db
-import charts, prices as pricing
+import charts
 
 
 @dataclass

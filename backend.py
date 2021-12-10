@@ -719,6 +719,12 @@ class RefreshQueue(MessagePublisher):
     def _get_watch_dir(self) -> str:
         return os.path.join(MoneyCache, ".av")
 
+    async def _delayed_start(self):
+        await asyncio.sleep(60)
+
+        log.info(f"delayed-start")
+        self.tasks.append(asyncio.create_task(self._crond("* * * * *", self._minute)))
+
     async def start(self):
         if self.tasks:
             return
@@ -743,9 +749,9 @@ class RefreshQueue(MessagePublisher):
         close_cron = "45 13 * * mon,tue,wed,thu,fri"
 
         self.tasks.append(asyncio.create_task(self._watch()))
-        self.tasks.append(asyncio.create_task(self._crond("* * * * *", self._minute)))
         self.tasks.append(asyncio.create_task(self._crond(open_cron, self._opening)))
         self.tasks.append(asyncio.create_task(self._crond(close_cron, self._closing)))
+        self.tasks.append(asyncio.create_task(self._delayed_start()))
 
 
 @dataclass

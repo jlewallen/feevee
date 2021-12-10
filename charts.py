@@ -404,7 +404,7 @@ async def ohlc(
 ):
     global pool
     if pool is None:
-        pool = concurrent.futures.ProcessPoolExecutor()
+        pool = concurrent.futures.ProcessPoolExecutor(max_workers=5)
         asyncio.create_task(_shutdown_pool(pool))
 
     loop = asyncio.get_running_loop()

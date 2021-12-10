@@ -5,13 +5,12 @@ from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 from pandas.core.frame import DataFrame
 from charts import read_prices_csv_sync
-import logging, asyncio, concurrent.futures, re
+import logging, asyncio, concurrent.futures, re, os
 import archive, charts
 
 
 log = logging.getLogger("feevee")
 data_frames_cache_: Dict[str, DataFrame] = {}
-filtering: List[str] = []
 
 
 @dataclass
@@ -141,7 +140,8 @@ def _get_symbol_price_files(
                     symbol, entry.path, daily, entry.modified, entry.changed
                 )
             )
-    if filtering:
+    if "FEEVEE_SYMBOLS" in os.environ:
+        filtering = os.environ["FEEVEE_SYMBOLS"].split(" ")
         return [file for file in symbol_files if file.symbol in filtering]
     return symbol_files
 
