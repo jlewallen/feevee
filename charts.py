@@ -1,10 +1,11 @@
-from typing import Optional, List, Sequence, Tuple
+from typing import Optional, List, Sequence, Tuple, TextIO, Union
 from decimal import Decimal
 from dataclasses import dataclass
-from pandas import DataFrame, read_csv
+from pandas import DataFrame, Series, read_csv
 from datetime import datetime
 from plotly.subplots import make_subplots
 
+import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 import os, logging
@@ -155,18 +156,21 @@ async def write_prices_csv(path: str, df: DataFrame):
         await f.write(df.to_csv())
 
 
+def read_prices_csv_sync(path: Union[str, TextIO]) -> DataFrame:
+    return read_csv(
+        path,
+        index_col=0,
+        parse_dates=[0],
+        header=0,
+        infer_datetime_format=True,
+        converters=CsvConverters,
+    ).sort_index()
+
+
 async def read_prices_csv(path: str) -> DataFrame:
     async with aiofiles.open(path, mode="r") as f:
         with io.StringIO(await f.read()) as text_io:
-            df = read_csv(
-                text_io,
-                index_col=0,
-                parse_dates=[0],
-                header=0,
-                infer_datetime_format=True,
-                converters=CsvConverters,
-            )
-            return df.sort_index()
+            return read_prices_csv_sync(text_io)
 
 
 @dataclass
@@ -407,3 +411,17 @@ async def ohlc(
     return await loop.run_in_executor(
         pool, _render_ohlc, prices, title, size, marks, colors
     )
+
+
+def make_empty_prices_df() -> DataFrame:
+    data: List[List[Decimal]] = []
+    columns = [
+        DailyOpenColumn,
+        DailyLowColumn,
+        DailyHighColumn,
+        DailyCloseColumn,
+        DailyVolumeColumns[0],
+    ]
+    df = DataFrame(data, columns=columns, index=pd.to_datetime(Series([])))
+    df.index.name = DailyDateColumn
+    return df

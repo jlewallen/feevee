@@ -12,11 +12,11 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from time import mktime
 from aiocron import crontab
-from watchgod import awatch
 import logging, os, json, re, threading
 import hashlib, asyncio, aiofiles
-import charts, archive, lots as stocklots
 import finnhub
+
+import charts, archive, prices as pricing, lots as stocklots
 
 
 log = logging.getLogger("feevee")
@@ -106,17 +106,11 @@ class Notes:
 
 
 @dataclass
-class PriceTimes:
-    daily: Optional[datetime] = None
-    candles: Optional[datetime] = None
-
-
-@dataclass
 class Stock:
     symbol: str
     info: Optional[SymbolRow]
     version: str = ""
-    price_times: PriceTimes = field(default_factory=PriceTimes)
+    prices: Optional[pricing.SymbolPrices] = None
     lots: stocklots.Lots = field(default_factory=stocklots.Lots)
     notes: Notes = field(default_factory=Notes)
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -212,18 +206,6 @@ async def load_symbol_notes(user: UserKey, symbol: str) -> Notes:
     return Notes()
 
 
-async def load_stock_price_times(portfolio: Portfolio, symbol: str) -> PriceTimes:
-    try:
-        daily = await load_daily_symbol_prices(symbol)
-        candles = await load_symbol_candles(symbol)
-        daily_time = daily.daily.index[-1] if len(daily.daily.index) > 0 else None
-        candles_time = candles.candles[-1].time if len(candles.candles) > 0 else None
-        return PriceTimes(daily_time, candles_time)
-    except FileNotFoundError:
-        log.warning(f"price-times: files missing")
-        return PriceTimes()
-
-
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
     return finish_key(
         [
@@ -231,11 +213,8 @@ def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
             str(portfolio.user),
             symbol,
             portfolio.get_symbol_key(symbol) or "",
+            pricing.get_symbol_prices_cache_key(symbol),
         ]
-        + cache_key_from_files(
-            charts.get_relative_daily_prices_path(symbol),
-            charts.get_relative_candles_path(symbol),
-        )
     )
 
 
@@ -244,9 +223,11 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
     log.debug(f"{symbol:6} key={_load_stock_key(load_stock, portfolio, symbol)}")
     info = await load_symbol_info(portfolio.user, symbol)
     notes = await load_symbol_notes(portfolio.user, symbol)
-    price_times = await load_stock_price_times(portfolio, symbol)
+    symbol_prices = await pricing.get_prices(symbol)
     notes_time = notes.time()
-    hashing = finish_key([symbol, str(notes_time), str(price_times)])
+    hashing = finish_key(
+        [symbol, str(notes_time), pricing.get_symbol_prices_cache_key(symbol)]
+    )
 
     def get_meta(sub_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if symbol in sub_meta:
@@ -261,7 +242,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
         symbol,
         info,
         version,
-        price_times,
+        symbol_prices,
         portfolio.lots,
         notes,
         meta,
@@ -419,8 +400,8 @@ class StockSorter:
                     break
 
             time = (
-                stock.price_times.candles.timestamp()
-                if stock.price_times.candles
+                stock.prices.candle.time.timestamp()
+                if stock.prices and stock.prices.candle
                 else 0
             )
             return (time, p)
@@ -440,7 +421,7 @@ class ManageDailies(MessageHandler):
         portfolio: Portfolio,
         stocks: List[Stock],
     ) -> None:
-        missing = [s for s in stocks if s.price_times.daily is None]
+        missing = [s for s in stocks if s.prices and s.prices.yesterday is None]
         if missing:
             log.info(f"queue:dailies {[s.symbol for s in missing]}")
         for stock in missing:
@@ -453,14 +434,15 @@ class ManageDailies(MessageHandler):
         if is_after_todays_market_bell(datetime.now() - timedelta(hours=1)):
             sorter = StockSorter(tag_priorities=self.tag_priorities)
             for s in sorter.sort(stocks):
-                price_times = await load_stock_price_times(portfolio, s.symbol)
-                log.debug(f"{s.symbol:6} daily:test {price_times}")
-                if price_times.candles and (
-                    price_times.daily is None
-                    or price_times.daily.date() < price_times.candles.date()
+                log.debug(f"{s.symbol:6} daily:test {s.prices}")
+                if s.prices is None:
+                    continue
+                if s.prices.candle and (
+                    s.prices.today is None
+                    or s.prices.today.time.date() < s.prices.candle.time.date()
                 ):
                     if self.touched.can_touch(s.symbol, timedelta(minutes=60)):
-                        log.info(f"{s.symbol:6} daily:queue {price_times}")
+                        log.info(f"{s.symbol:6} daily:queue {s.prices}")
                         await messages.push(
                             RefreshDailyMessage(portfolio.user, s.symbol, maximum_age=0)
                         )
@@ -737,25 +719,19 @@ class RefreshQueue(MessagePublisher):
     def _get_watch_dir(self) -> str:
         return os.path.join(MoneyCache, ".av")
 
-    async def _watch_file_system(self):
-        path = self._get_watch_dir()
-        async for changes in awatch(path):
-            log.info(f"{changes}")
-            await archive.get_directory(path)
-
     async def start(self):
         if self.tasks:
             return
 
         log.info(f"queues:starting")
 
+        asyncio.get_event_loop().set_debug(True)
+
+        await pricing.initialize(self._get_watch_dir())
+
         db = await get_db()
 
         await db.open()
-
-        asyncio.get_event_loop().set_debug(True)
-
-        await archive.get_directory(self._get_watch_dir())
 
         self.charts.start(self)
         self.dailies.start(self)
@@ -770,7 +746,6 @@ class RefreshQueue(MessagePublisher):
         self.tasks.append(asyncio.create_task(self._crond("* * * * *", self._minute)))
         self.tasks.append(asyncio.create_task(self._crond(open_cron, self._opening)))
         self.tasks.append(asyncio.create_task(self._crond(close_cron, self._closing)))
-        self.tasks.append(asyncio.create_task(self._watch_file_system()))
 
 
 @dataclass
@@ -804,6 +779,77 @@ class SymbolRepository:
     async def add_symbols(str, user: UserKey, symbols: List[str]):
         db = await get_db()
         await db.add_symbols(user, symbols)
+
+
+def rounding(v: Decimal) -> Decimal:
+    return v.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+
+def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Prices:
+    if candles.empty:
+        log.info(f"{candles.symbol:6} candle:emtpy")
+        return prices
+
+    daily_max_time = prices.daily.index.max() + timedelta(hours=24)
+    candles_max_time = candles.daily.index[-1]
+
+    candles_after_daily = candles.history(daily_max_time, datetime.now())
+    if candles_after_daily.empty:
+        log.info(f"{candles.symbol:6} candles:ignore daily-max={daily_max_time}")
+        return prices
+
+    opening = rounding(candles_after_daily.daily[charts.DailyOpenColumn][0])
+    closing = rounding(candles_after_daily.daily[charts.DailyCloseColumn][-1])
+    low = rounding(candles_after_daily.daily[charts.DailyLowColumn].min())
+    high = rounding(candles_after_daily.daily[charts.DailyHighColumn].max())
+    volume = rounding(candles_after_daily.daily[charts.DailyVolumeColumns].sum())
+    last_key = candles_after_daily.daily.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+
+    # We clone here to avoid having this modified dataframe modified while
+    # in-memory and cached as the boring old daily data frame.
+    copy = prices.clone()
+    copy.daily.at[last_key, charts.DailyOpenColumn] = opening
+    copy.daily.at[last_key, charts.DailyLowColumn] = low
+    copy.daily.at[last_key, charts.DailyHighColumn] = high
+    copy.daily.at[last_key, charts.DailyCloseColumn] = closing
+    copy.daily.at[last_key, charts.DailyVolumeColumns] = volume
+    log.info(
+        f"{candles.symbol:6} candles:include daily-max={daily_max_time} candles-max={candles_max_time} candles={len(candles_after_daily.daily.index)} open={opening} low={low} high={high} closing={closing}"
+    )
+    return copy
+
+
+async def load_symbol_candles(symbol: str) -> charts.Prices:
+    symbol_prices = await pricing.get_prices(symbol)
+    prices = symbol_prices.candle_prices()
+    log.debug(f"{symbol:6} candles:df")
+    return prices
+
+
+async def load_daily_symbol_prices(symbol: str) -> charts.Prices:
+    started = datetime.utcnow()
+    symbol_prices = await pricing.get_prices(symbol)
+    prices = symbol_prices.daily_prices()
+    elapsed = datetime.utcnow() - started
+    log.info(f"{symbol:6} daily:df elapsed={elapsed}")
+    return prices
+
+
+async def load_symbol_prices(symbol: str):
+    started = datetime.utcnow()
+    candles = await load_symbol_candles(symbol)
+    daily = await load_daily_symbol_prices(symbol)
+    with_candles = _include_candles(daily, candles)
+    elapsed = datetime.utcnow() - started
+    log.info(f"{symbol:6} prices:df elapsed={elapsed}")
+    return with_candles
+
+
+async def load_months_of_symbol_prices(symbol: str, months: int):
+    prices = await load_symbol_prices(symbol)
+    today = datetime.utcnow()
+    start = today - relativedelta(months=months)
+    return prices.history(start, today)
 
 
 @dataclass
@@ -887,105 +933,3 @@ def parse_candles(
     ]
 
     return Candles(symbol, sorted(candles, key=lambda c: c.time))
-
-
-def rounding(v: Decimal) -> Decimal:
-    return v.quantize(Decimal("0.01"), ROUND_HALF_UP)
-
-
-def _include_candles(prices: charts.Prices, candles: Candles) -> charts.Prices:
-    if len(candles.candles) == 0:
-        log.info(f"{candles.symbol:6} candle:emtpy")
-        return prices
-
-    daily_max_time = prices.daily.index.max() + timedelta(hours=24)
-    candles_max_time = candles.candles[-1].time
-
-    candles_after_daily = [c for c in candles.candles if c.time > daily_max_time]
-    if len(candles_after_daily) == 0:
-        log.info(f"{candles.symbol:6} candles:ignore daily-max={daily_max_time}")
-        return prices
-
-    opening = rounding(candles_after_daily[0].opening)
-    closing = rounding(candles_after_daily[-1].closing)
-    low = rounding(min([c.low for c in candles_after_daily]))
-    high = rounding(max([c.high for c in candles_after_daily]))
-    volume = rounding(Decimal(sum([c.volume for c in candles_after_daily])))
-    last_key = candles_after_daily[-1].time.strftime("%Y-%m-%d %H:%M:%S")
-
-    # We clone here to avoid having this modified dataframe modified while
-    # in-memory and cached as the boring old daily data frame.
-    copy = prices.clone()
-    copy.daily.at[last_key, charts.DailyOpenColumn] = opening
-    copy.daily.at[last_key, charts.DailyLowColumn] = low
-    copy.daily.at[last_key, charts.DailyHighColumn] = high
-    copy.daily.at[last_key, charts.DailyCloseColumn] = closing
-    copy.daily.at[last_key, charts.DailyVolumeColumns] = volume
-    log.info(
-        f"{candles.symbol:6} candles:include daily-max={daily_max_time} candles-max={candles_max_time} candles={len(candles_after_daily)} open={opening} low={low} high={high} closing={closing}"
-    )
-    return copy
-
-
-def _load_symbol_candles_key(fn, symbol: str) -> str:
-    return finish_key(
-        [fn.__name__, symbol]
-        + cache_key_from_files(charts.get_relative_candles_path(symbol))
-    )
-
-
-@cached(key_builder=_load_symbol_candles_key, cache=Cache.MEMORY)
-async def load_symbol_candles(symbol: str):
-    path = os.path.join(MoneyCache, charts.get_relative_candles_path(symbol))
-    if os.path.isfile(path):
-        log.debug(f"{symbol:6} candles:loading")
-        async with aiofiles.open(path, mode="r") as file:
-            parsed = json.loads(await file.read())
-            return parse_candles(symbol, **parsed)
-
-    log.debug(f"{symbol:6} candles:none")
-    return Candles(symbol, [])
-
-
-def _load_daily_symbol_prices_key(fn, symbol: str) -> str:
-    return finish_key(
-        [fn.__name__, symbol]
-        + cache_key_from_files(charts.get_relative_daily_prices_path(symbol))
-    )
-
-
-@cached(key_builder=_load_daily_symbol_prices_key, cache=Cache.MEMORY)
-async def load_daily_symbol_prices(symbol: str):
-    started = datetime.utcnow()
-    prices = await charts.PriceCache(MoneyCache, symbol).load()
-    elapsed = datetime.utcnow() - started
-    log.info(f"{symbol:6} loading prices {prices.date_range()} elapsed={elapsed}")
-    return prices
-
-
-def _load_symbol_prices_key(fn, symbol: str) -> str:
-    return finish_key(
-        [fn.__name__, symbol]
-        + cache_key_from_files(
-            charts.get_relative_daily_prices_path(symbol),
-            charts.get_relative_candles_path(symbol),
-        )
-    )
-
-
-@cached(key_builder=_load_symbol_prices_key, cache=Cache.MEMORY)
-async def load_symbol_prices(symbol: str):
-    started = datetime.utcnow()
-    candles = await load_symbol_candles(symbol)
-    daily = await load_daily_symbol_prices(symbol)
-    elapsed = datetime.utcnow() - started
-    with_candles = _include_candles(daily, candles)
-    log.info(f"{symbol:6} loaded symbol prices elapsed={elapsed}")
-    return with_candles
-
-
-async def load_months_of_symbol_prices(symbol: str, months: int):
-    prices = await load_symbol_prices(symbol)
-    today = datetime.utcnow()
-    start = today - relativedelta(months=months)
-    return prices.history(start, today)

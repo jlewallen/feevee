@@ -15,6 +15,7 @@
             }"
             :href="seekingAlphaUrl"
             target="_blank"
+            v-if="visible.percent_change"
             >{{ visible.percent_change }}%</a
           >
         </span>
@@ -24,6 +25,7 @@
             dollars: true,
             negative: visible.negative,
           }"
+          v-if="visible.price"
           >${{ visible.price }}</span
         >
         <span class="basis" v-if="visible.position"
@@ -32,7 +34,7 @@
         <span class="total-value" v-if="visible.position"
           ><span class="units">T</span>${{ visible.position.total_value }}
 
-          <span class="portfolio-value">
+          <span class="portfolio-value" v-if="portfolioValue > 0">
             {{
               ((visible.position.total_value / portfolioValue) * 100).toFixed(
                 1

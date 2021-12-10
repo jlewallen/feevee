@@ -9,7 +9,6 @@ from aiocache import cached
 from dataclasses import dataclass, field
 import logging, json, asyncio, os, pandas
 
-import charts
 from backend import (
     ManageCandles,
     ManageDailies,
@@ -35,6 +34,7 @@ from backend import (
 )
 from loggers import setup_logging_queue
 from storage import UserKey, get_db
+import charts, prices as pricing
 
 
 @dataclass
@@ -94,110 +94,76 @@ def _assemble_stock_view_model_key(fn, stock: Stock) -> str:
 @cached(key_builder=_assemble_stock_view_model_key, **Caching)
 async def assemble_stock_view_model(stock: Stock):
     # Sure, this method is hideous but at least it's all in one place!
-    try:
-        prices = await load_symbol_prices(stock.symbol)
-    except FileNotFoundError:
-        log.info(f"{stock.symbol:6} missing prices!")
-        return None
 
-    last = dict(
-        time=prices.daily.index[-1],
-        itime=prices.daily.index[-1].timestamp(),
-        open=float(prices.daily[charts.DailyOpenColumn][-1]),
-        close=float(prices.daily[charts.DailyCloseColumn][-1]),
-        high=float(prices.daily[charts.DailyHighColumn][-1]),
-        low=float(prices.daily[charts.DailyLowColumn][-1]),
-    )
-    last_price = prices.daily[charts.DailyCloseColumn][-1]
+    symbol_prices = stock.prices
+    assert symbol_prices
 
-    previous = dict(
-        time=prices.daily.index[-2],
-        itime=prices.daily.index[-2].timestamp(),
-        open=float(prices.daily[charts.DailyOpenColumn][-2]),
-        close=float(prices.daily[charts.DailyCloseColumn][-2]),
-        high=float(prices.daily[charts.DailyHighColumn][-2]),
-        low=float(prices.daily[charts.DailyLowColumn][-2]),
-    )
-    previous_price = prices.daily[charts.DailyCloseColumn][-2]
-
-    price_change = last_price - previous_price
-    percent_change = (price_change / previous_price) * 100
     symbol_lots = [lot for lot in stock.lots.lots if lot.symbol == stock.symbol]
     basis_price = stock.lots.get_basis(stock.symbol)
+
+    log.info(
+        f"{stock.symbol:6} y={symbol_prices.yesterday} t={symbol_prices.today} c={symbol_prices.candle}"
+    )
+
+    price_change = symbol_prices.price_change()
+    percent_change = symbol_prices.price_change_percentage()
+    last_price = symbol_prices.price.price if symbol_prices.price else None
 
     def lot_to_json(lot):
         return dict(date=lot.date, price=float(lot.price), quantity=float(lot.quantity))
 
-    def price_range(prices: charts.Prices):
-        price_range = prices.price_range()
-        r = (
-            prices.daily[charts.DailyOpenColumn][-1]
-            - prices.daily[charts.DailyCloseColumn][0]
-        )
-        return dict(
-            open=float(prices.daily[charts.DailyOpenColumn][0]),
-            close=float(prices.daily[charts.DailyCloseColumn][-1]),
-            low=float(price_range[0]),
-            high=float(price_range[1]),
-            percent_change=rounding((r / price_range[1]) * 100),
-        )
-
     def make_position():
         if not basis_price:
             return None
+
+        assert symbol_prices
+        total_value: Optional[Decimal] = None
+        if symbol_prices.price:
+            total_value = rounding(
+                symbol_prices.price.price * sum([l.quantity for l in symbol_lots])
+            )
+
         return dict(
             symbol=stock.symbol,
             basis_price=rounding(basis_price),
-            total_value=rounding(last_price * sum([l.quantity for l in symbol_lots])),
+            total_value=total_value,
         )
 
-    today = datetime.now()
-    three_months = prices.history(today - relativedelta(months=3), today)
-    one_year = prices.history(today - relativedelta(months=12), today)
     position = make_position()
 
     virtual_tags = [] if stock.notes.tags else ["v:untagged"]
     virtual_tags.append("v:hold" if position else "v:watch")
-    virtual_tags.append("v:down" if price_change < 0 else "v:up")
-
-    one_year_range = one_year.price_range()
 
     def is_nearby(target: Decimal, value: Decimal) -> bool:
         s = value * Decimal(0.9)
         e = value * Decimal(1.1)
         return target >= s and target <= e
 
-    if basis_price:
-        if last_price > basis_price:
-            virtual_tags.append("v:basis:above")
-            if "exiting" in stock.notes.tags:
-                virtual_tags.append("v:sell")
-        else:
-            virtual_tags.append("v:basis:below")
-            if "entering" in stock.notes.tags:
-                virtual_tags.append("v:buy")
+    if price_change:
+        virtual_tags.append("v:down" if price_change < 0 else "v:up")
 
-    if is_nearby(one_year_range[0], last_price):
-        virtual_tags.append("v:year:low")
+    if last_price:
+        if basis_price:
+            if last_price > basis_price:
+                virtual_tags.append("v:basis:above")
+                if "exiting" in stock.notes.tags:
+                    virtual_tags.append("v:sell")
+            else:
+                virtual_tags.append("v:basis:below")
+                if "entering" in stock.notes.tags:
+                    virtual_tags.append("v:buy")
 
-    if is_nearby(one_year_range[1], last_price):
-        virtual_tags.append("v:year:high")
+        if symbol_prices.one_year_range:
+            if is_nearby(symbol_prices.one_year_range[0], last_price):
+                virtual_tags.append("v:year:low")
 
-    if not stock.is_slow:
-        local_now = datetime.now()
-        allowed = 1
-        if local_now.weekday() == 5 or local_now.weekday() == 6:
-            allowed = 3
-        log.info(
-            f"{stock.symbol:6} local-now={local_now} price={prices.daily.index[-1]}"
-        )
-        if local_now - prices.daily.index[-1] > timedelta(days=allowed):
-            virtual_tags.append("v:old")
+            if is_nearby(symbol_prices.one_year_range[1], last_price):
+                virtual_tags.append("v:year:high")
 
-    for np in stock.notes.prices:
-        if is_nearby(np, last_price):
-            virtual_tags.append("v:noted")
-            break
+        for np in stock.notes.prices:
+            if is_nearby(np, last_price):
+                virtual_tags.append("v:noted")
+                break
 
     return dict(
         symbol=stock.symbol,
@@ -205,20 +171,15 @@ async def assemble_stock_view_model(stock: Stock):
         meta=stock.meta,
         key=finish_key(stock.key()),
         info=json.loads(stock.info.data) if stock.info else None,
-        previous=previous,
-        last=last,
-        tags=stock.notes.tags + virtual_tags,
-        lots=[lot_to_json(lot) for lot in symbol_lots],
         position=position,
         change=price_change,
         price=last_price,
-        previous_price=previous_price,
-        percent_change=rounding(percent_change),
-        negative=percent_change < 0,
-        three_months=price_range(three_months),
-        one_year=price_range(one_year),
+        tags=stock.notes.tags + virtual_tags,
+        lots=[lot_to_json(lot) for lot in symbol_lots],
+        percent_change=maybe_round(percent_change),
+        negative=percent_change < 0 if percent_change else False,
         noted_prices=stock.notes.prices,
-        has_candles=not not stock.price_times.candles,
+        has_candles=not not symbol_prices.candle,
         notes=[
             dict(
                 symbol=n.symbol,
@@ -279,8 +240,7 @@ def _render_candles_key(fn, stock: Stock, w: int, h: int, style: str) -> str:
 async def render_candles(stock: Stock, w: int, h: int, style: str):
     log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {style}")
     candles = await load_symbol_candles(stock.symbol)
-    prices = charts.Prices(symbol=stock.symbol, daily=candles.to_df())
-    return await _render_ohlc(stock, prices, w, h, style)
+    return await _render_ohlc(stock, candles, w, h, style)
 
 
 def _render_ohlc_key(fn, stock: Stock, months: int, w: int, h: int, style: str) -> str:
@@ -501,6 +461,10 @@ async def send_index():
 
 def rounding(v: Decimal) -> Decimal:
     return v.quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+
+def maybe_round(v: Optional[Decimal]) -> Optional[Decimal]:
+    return rounding(v) if v else None
 
 
 def factory():
