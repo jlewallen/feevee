@@ -292,10 +292,10 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
         stock = await repository.get_stock(m.user, m.symbol)
         for template in self.templates:
             for theme in Themes:
-                for months in [4, 12]:
-                    log.debug(f"{m.symbol:6} web-charts:refresh {template} / {theme}")
-                    await render_candles(stock, template.w, template.h, theme)
+                for months in [4]:
                     await render_ohlc(stock, months, template.w, template.h, theme)
+                for days in [2]:
+                    await render_candles(stock, days, template.w, template.h, theme)
 
 
 class JSONEncoder(quart_json.JSONEncoder):
