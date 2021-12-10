@@ -1,5 +1,16 @@
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Dict, Optional, Sequence, Tuple, Any, cast, Callable, Any
+from typing import (
+    List,
+    Dict,
+    Optional,
+    Sequence,
+    Tuple,
+    Any,
+    cast,
+    Callable,
+    Any,
+    Iterable,
+)
 from dateutil.relativedelta import relativedelta
 from dataclasses import dataclass, field
 from aiocache import cached, Cache
@@ -12,7 +23,7 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from time import mktime
 from aiocron import crontab
-import logging, os, json, re, threading
+import logging, os, json, re, threading, itertools
 import hashlib, asyncio, aiofiles
 import finnhub
 
@@ -758,8 +769,8 @@ class RefreshQueue(MessagePublisher):
 class SymbolRepository:
     async def get_all_stocks(self, user: UserKey) -> List[Stock]:
         portfolio = await load_portfolio(user)
-        return await asyncio.gather(
-            *[self.get_stock(user, symbol, portfolio) for symbol in portfolio.symbols]
+        return await chunked(
+            portfolio.symbols, lambda symbol: self.get_stock(user, symbol, portfolio)
         )
 
     async def get_stock(
@@ -939,3 +950,24 @@ def parse_candles(
     ]
 
     return Candles(symbol, sorted(candles, key=lambda c: c.time))
+
+
+def chunked_iterable(iterable: Iterable, size: int) -> Iterable:
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, size))
+        if not chunk:
+            break
+        yield chunk
+
+
+async def chunked(items: List[Any], fn: Callable):
+    async def assemble_batch(batch):
+        started = datetime.utcnow()
+        vms = await asyncio.gather(*[fn(item) for item in batch])
+        elapsed = datetime.utcnow() - started
+        log.info(f"{'':6} batch elapsed={elapsed} size={len(batch)}")
+        return vms
+
+    batched = chunked_iterable(items, size=10)
+    return flatten([await assemble_batch(batch) for batch in batched])

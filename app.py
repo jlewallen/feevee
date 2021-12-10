@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Sequence, Tuple
+from typing import List, Dict, Optional, Sequence, Tuple, Iterable
 from decimal import Decimal, ROUND_HALF_UP
 from quart import Quart, send_from_directory, request, Response
 from quart import json as quart_json
@@ -7,9 +7,10 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from aiocache import cached
 from dataclasses import dataclass, field
-import logging, json, asyncio, os, pandas
+import logging, json, asyncio, itertools
 
 from backend import (
+    chunked,
     ManageCandles,
     ManageDailies,
     ManageIndicators,
@@ -338,8 +339,7 @@ async def get_user() -> UserKey:
 async def status():
     user = await get_user()
     stocks = await repository.get_all_stocks(user)
-    view_models = [assemble_stock_view_model(stock) for stock in stocks]
-    symbols = await asyncio.gather(*view_models)
+    symbols = await chunked(stocks, lambda stock: assemble_stock_view_model(stock))
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 
 
