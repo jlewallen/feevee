@@ -432,6 +432,9 @@ class ManageDailies(MessageHandler):
         portfolio: Portfolio,
         stocks: List[Stock],
     ) -> None:
+        if is_market_open():
+            return
+
         missing = [s for s in stocks if s.prices and s.prices.daily_end is None]
         if missing:
             log.info(f"queue:dailies {[s.symbol for s in missing]}")
