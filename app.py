@@ -198,6 +198,7 @@ async def _render_ohlc(
     h: int,
     style: str,
     trading_hours_only: bool = False,
+    show_last_buy: bool = False,
 ):
     symbol = stock.symbol
     theme = get_theme(style)
@@ -209,7 +210,7 @@ async def _render_ohlc(
         for np in stock.notes.prices
     ]
 
-    if last_buy_price:
+    if show_last_buy and last_buy_price:
         marks.append(
             charts.PriceMark(
                 rounding(last_buy_price),
