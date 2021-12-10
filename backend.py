@@ -432,7 +432,7 @@ class ManageDailies(MessageHandler):
         portfolio: Portfolio,
         stocks: List[Stock],
     ) -> None:
-        missing = [s for s in stocks if s.prices and s.prices.yesterday is None]
+        missing = [s for s in stocks if s.prices and s.prices.daily_end is None]
         if missing:
             log.info(f"queue:dailies {[s.symbol for s in missing]}")
         for stock in missing:
@@ -449,8 +449,8 @@ class ManageDailies(MessageHandler):
                 if s.prices is None:
                     continue
                 if s.prices.candle and (
-                    s.prices.today is None
-                    or s.prices.today.time.date() < s.prices.candle.time.date()
+                    s.prices.daily_end is None
+                    or s.prices.daily_end.time.date() < s.prices.candle.time.date()
                 ):
                     if self.touched.can_touch(s.symbol, timedelta(minutes=60)):
                         log.info(f"{s.symbol:6} daily:queue {s.prices}")
@@ -770,7 +770,9 @@ class SymbolRepository:
     async def get_all_stocks(self, user: UserKey) -> List[Stock]:
         portfolio = await load_portfolio(user)
         return await chunked(
-            portfolio.symbols, lambda symbol: self.get_stock(user, symbol, portfolio)
+            "batch-stocks",
+            portfolio.symbols,
+            lambda symbol: self.get_stock(user, symbol, portfolio),
         )
 
     async def get_stock(
@@ -964,12 +966,12 @@ def chunked_iterable(iterable: Iterable, size: int) -> Iterable:
         yield chunk
 
 
-async def chunked(items: List[Any], fn: Callable):
+async def chunked(name: str, items: List[Any], fn: Callable):
     async def assemble_batch(batch):
         started = datetime.utcnow()
         vms = await asyncio.gather(*[fn(item) for item in batch])
         elapsed = datetime.utcnow() - started
-        log.info(f"{'':6} batch elapsed={elapsed} size={len(batch)}")
+        log.info(f"{'':6} {name} elapsed={elapsed} size={len(batch)}")
         return vms
 
     batched = chunked_iterable(items, size=10)

@@ -42,33 +42,49 @@ class BasicPrice:
 @dataclass
 class SymbolPrices:
     symbol: str
-    yesterday: Optional[BasicPrice] = None
-    today: Optional[BasicPrice] = None
+    daily_previous: Optional[BasicPrice] = None
+    daily_end: Optional[BasicPrice] = None
     candle: Optional[BasicPrice] = None
     one_year_range: Optional[Tuple[Decimal, Decimal]] = None
     files: Dict[str, SymbolPriceFile] = field(default_factory=dict)
 
     @property
     def price(self) -> Optional[BasicPrice]:
-        if self.today and self.candle:
-            if self.today.time.date() == self.candle.time.date():
-                return self.today
-        return self.candle or self.today
+        if self.daily_end and self.candle:
+            if self.daily_end.time.date() == self.candle.time.date():
+                return self.daily_end
+        return self.candle or self.daily_end
 
     @property
     def key(self) -> Optional[str]:
         price = self.price
         return str(price.time) if price else None
 
+    @property
+    def previous_close(self) -> Optional[BasicPrice]:
+        daily_end = self.daily_end
+        daily_previous = self.daily_previous
+        candle = self.candle
+
+        if candle and daily_end:
+            if candle.time.date() > daily_end.time.date():
+                return daily_end
+
+        return daily_previous
+
     def price_change(self) -> Optional[Decimal]:
-        if self.yesterday and self.price:
-            return self.price.price - self.yesterday.price
+        price = self.price
+        previous_close = self.previous_close
+
+        if price and previous_close:
+            return price.price - previous_close.price
+
         return None
 
     def price_change_percentage(self) -> Optional[Decimal]:
         change = self.price_change()
-        if change and self.yesterday:
-            return (change / self.yesterday.price) * 100
+        if change and self.previous_close:
+            return (change / self.previous_close.price) * 100
         return None
 
     def update(self, file: SymbolPriceFile):
@@ -84,15 +100,15 @@ class SymbolPrices:
 
         file_end = get_nth(-1)
         if file.daily:
-            daily_previous = get_nth(-2)
+            file_previous = get_nth(-2)
 
-            self.yesterday = daily_previous
-            self.today = file_end
+            self.daily_previous = file_previous
+            self.daily_end = file_end
 
             one_year = file.df[today - relativedelta(months=12) : today]  # type: ignore
             self.one_year_range = price_range(one_year)
 
-            log.info(f"{self.symbol:6} prices:today = {self.today}")
+            log.info(f"{self.symbol:6} prices:daily-end = {self.daily_end}")
         else:
             self.candle = file_end
             log.info(f"{self.symbol:6} prices:candle = {self.candle}")

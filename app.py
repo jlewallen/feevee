@@ -101,10 +101,7 @@ async def assemble_stock_view_model(stock: Stock):
     symbol_lots = [lot for lot in stock.lots.lots if lot.symbol == stock.symbol]
     basis_price = stock.lots.get_basis(stock.symbol)
 
-    log.info(
-        f"{stock.symbol:6} y={symbol_prices.yesterday} t={symbol_prices.today} c={symbol_prices.candle}"
-    )
-
+    previous_close = symbol_prices.previous_close
     price_change = symbol_prices.price_change()
     percent_change = symbol_prices.price_change_percentage()
     last_price = symbol_prices.price.price if symbol_prices.price else None
@@ -174,6 +171,7 @@ async def assemble_stock_view_model(stock: Stock):
         position=position,
         change=price_change,
         price=last_price,
+        previous_close=previous_close,
         tags=stock.notes.tags + virtual_tags,
         lots=[lot_to_json(lot) for lot in symbol_lots],
         percent_change=maybe_round(percent_change),
@@ -351,7 +349,9 @@ async def get_user() -> UserKey:
 async def status():
     user = await get_user()
     stocks = await repository.get_all_stocks(user)
-    symbols = await chunked(stocks, lambda stock: assemble_stock_view_model(stock))
+    symbols = await chunked(
+        "batch-vms", stocks, lambda stock: assemble_stock_view_model(stock)
+    )
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 
 
