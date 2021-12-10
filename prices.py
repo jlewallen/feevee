@@ -104,7 +104,7 @@ class SymbolPrices:
 
     def candle_prices(self) -> charts.Prices:
         for file in [f for f in self.files.values() if not f.daily]:
-            return charts.Prices(self.symbol, file.df)
+            return charts.Prices(self.symbol, file.df).market_hours_only()
         return charts.Prices(self.symbol, charts.make_empty_prices_df())
 
 

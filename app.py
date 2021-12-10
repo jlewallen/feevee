@@ -193,7 +193,14 @@ async def assemble_stock_view_model(stock: Stock):
     )
 
 
-async def _render_ohlc(stock: Stock, prices: charts.Prices, w: int, h: int, style: str):
+async def _render_ohlc(
+    stock: Stock,
+    prices: charts.Prices,
+    w: int,
+    h: int,
+    style: str,
+    trading_hours_only: bool = False,
+):
     symbol = stock.symbol
     theme = get_theme(style)
     basis_price = stock.lots.get_basis(symbol)
@@ -227,7 +234,12 @@ async def _render_ohlc(stock: Stock, prices: charts.Prices, w: int, h: int, styl
         )
 
     data = await charts.ohlc(
-        prices, symbol, size=(w, h), marks=marks, colors=theme.colors
+        prices,
+        symbol,
+        size=(w, h),
+        marks=marks,
+        colors=theme.colors,
+        trading_hours_only=trading_hours_only,
     )
     return Response(data, mimetype="image/png")
 
@@ -240,7 +252,7 @@ def _render_candles_key(fn, stock: Stock, w: int, h: int, style: str) -> str:
 async def render_candles(stock: Stock, w: int, h: int, style: str):
     log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {style}")
     candles = await load_symbol_candles(stock.symbol)
-    return await _render_ohlc(stock, candles, w, h, style)
+    return await _render_ohlc(stock, candles, w, h, style, trading_hours_only=True)
 
 
 def _render_ohlc_key(fn, stock: Stock, months: int, w: int, h: int, style: str) -> str:

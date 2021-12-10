@@ -46,6 +46,13 @@ class Prices:
     symbol: str
     daily: DataFrame
 
+    def market_hours_only(self) -> "Prices":
+        filtered = self.daily.between_time("6:30", "13:00")
+        log.info(
+            f"prices:market-hours daily={len(self.daily.index)} filtered={len(filtered.index)}"
+        )
+        return Prices(self.symbol, filtered)
+
     @property
     def empty(self) -> bool:
         return self.daily.empty
@@ -224,6 +231,7 @@ def _render_ohlc(
     size: Tuple[int, int],
     marks: List[PriceMark],
     colors: Colors,
+    trading_hours_only: bool = False,
 ):
     show_last_value_marker = True
 
@@ -329,6 +337,14 @@ def _render_ohlc(
         annotations += [make_y_arrow(value, f"{value}", 1, colors.text, colors.bg)]
         fig.update_layout(annotations=annotations)
 
+    if trading_hours_only:
+        fig.update_xaxes(
+            rangebreaks=[
+                dict(bounds=["sat", "mon"]),
+                dict(bounds=[13, 6.5], pattern="hour"),
+            ],
+        )
+
     fig.update_layout(
         shapes=[
             dict(
@@ -401,6 +417,7 @@ async def ohlc(
     size: Tuple[int, int],
     marks: List[PriceMark],
     colors: Colors,
+    trading_hours_only: bool = False,
 ):
     global pool
     if pool is None:
@@ -409,7 +426,7 @@ async def ohlc(
 
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        pool, _render_ohlc, prices, title, size, marks, colors
+        pool, _render_ohlc, prices, title, size, marks, colors, trading_hours_only
     )
 
 
