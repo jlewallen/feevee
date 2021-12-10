@@ -819,7 +819,7 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
     closing = rounding(candles_after_daily.daily[charts.DailyCloseColumn][-1])
     low = rounding(candles_after_daily.daily[charts.DailyLowColumn].min())
     high = rounding(candles_after_daily.daily[charts.DailyHighColumn].max())
-    volume = rounding(candles_after_daily.daily[charts.DailyVolumeColumns].sum())
+    volume = rounding(Decimal(candles_after_daily.daily[candles.volume_column()].sum()))
     last_key = candles_after_daily.daily.index[-1].strftime("%Y-%m-%d %H:%M:%S")
 
     # We clone here to avoid having this modified dataframe modified while
