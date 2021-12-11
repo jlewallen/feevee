@@ -99,7 +99,7 @@ class Portfolio:
 
     def get_symbol_key(self, symbol: str) -> Optional[str]:
         if symbol in self.user.symbols:
-            return self.user.symbols[symbol]
+            return str(self.user.symbols[symbol])
         return None
 
 
@@ -237,7 +237,12 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
     symbol_prices = await pricing.get_prices(symbol)
     notes_time = notes.time()
     hashing = finish_key(
-        [symbol, str(notes_time), pricing.get_symbol_prices_cache_key(symbol)]
+        [
+            symbol,
+            str(notes_time),
+            portfolio.get_symbol_key(symbol) or "",
+            pricing.get_symbol_prices_cache_key(symbol),
+        ]
     )
 
     def get_meta(sub_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:

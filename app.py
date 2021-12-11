@@ -162,6 +162,8 @@ async def assemble_stock_view_model(stock: Stock):
                 virtual_tags.append("v:noted")
                 break
 
+    log.info(f"{stock.symbol:6} vm:done version={stock.version} price={last_price}")
+
     return dict(
         symbol=stock.symbol,
         version=stock.version,

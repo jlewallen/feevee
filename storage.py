@@ -13,10 +13,17 @@ UserId = int
 class UserKey:
     uid: UserId
     generation: str
-    symbols: Dict[str, str] = field(default_factory=dict)
+    symbols: Dict[str, datetime] = field(default_factory=dict)
+
+    @property
+    def symbol_key(self) -> str:
+        values = list(self.symbols.values())
+        if values:
+            return max(values)
+        return ""
 
     def __str__(self):
-        return f"UserKey<{self.uid}, {self.generation}, {len(self.symbols.keys())}>"
+        return f"UserKey<{self.uid}, {self.generation}, {len(self.symbols.keys()), {self.symbol_key}}>"
 
     def __repr__(self):
         return str(self)
@@ -183,7 +190,7 @@ class SymbolStorage:
             [user_id],
         )
         for row in await dbc.fetchall():
-            keys[row[0]] = row[1]
+            keys[row[0]] = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
         return keys
 
     async def get_all_notes(self, user_key: UserKey) -> Dict[str, List[NoteRow]]:
