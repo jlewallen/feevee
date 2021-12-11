@@ -12,18 +12,18 @@ UserId = int
 @dataclass
 class UserKey:
     uid: UserId
-    generation: str
+    modified: datetime
     symbols: Dict[str, datetime] = field(default_factory=dict)
 
     @property
     def symbol_key(self) -> str:
         values = list(self.symbols.values())
         if values:
-            return max(values)
+            return str(max(values))
         return ""
 
     def __str__(self):
-        return f"UserKey<{self.uid}, {self.generation}, {len(self.symbols.keys()), {self.symbol_key}}>"
+        return f"UserKey<{self.uid}, {self.modified}, {len(self.symbols.keys()), {self.symbol_key}}>"
 
     def __repr__(self):
         return str(self)
@@ -105,7 +105,8 @@ class SymbolStorage:
             [user_id],
         )
         found = [
-            UserKey(row[0], str(row[1]), symbol_keys) for row in await dbc.fetchall()
+            UserKey(row[0], self._parse_datetime(row[1]), symbol_keys)
+            for row in await dbc.fetchall()
         ]
         assert found
         return found[0]
@@ -125,7 +126,7 @@ class SymbolStorage:
             "SELECT modified, data FROM symbols WHERE symbol = ?", [symbol]
         )
         for row in await dbc.fetchall():
-            return SymbolRow(symbol, row[0], row[1])
+            return SymbolRow(symbol, self._parse_datetime(row[0]), row[1])
         return None
 
     async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
@@ -135,7 +136,10 @@ class SymbolStorage:
             [user_key.uid],
         )
         rows = await dbc.fetchall()
-        return {row[0]: SymbolRow(row[0], row[1], row[2]) for row in rows}
+        return {
+            row[0]: SymbolRow(row[0], self._parse_datetime(row[1]), row[2])
+            for row in rows
+        }
 
     async def add_symbols(self, user_key: UserKey, symbols: List[str]):
         assert self.db
@@ -170,11 +174,10 @@ class SymbolStorage:
             [user_key.uid, symbol],
         )
         for row in await dbc.fetchall():
-            created = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S.%f")
             notes.append(
                 NoteRow(
                     symbol,
-                    created,
+                    self._parse_datetime(row[0]),
                     Decimal(row[1]),
                     Decimal(row[2]) if row[2] else None,
                     row[3],
@@ -182,7 +185,7 @@ class SymbolStorage:
             )
         return notes
 
-    async def _get_user_symbol_keys(self, user_id: int) -> Dict[str, str]:
+    async def _get_user_symbol_keys(self, user_id: int) -> Dict[str, datetime]:
         assert self.db
         keys = {}
         dbc = await self.db.execute(
@@ -190,7 +193,7 @@ class SymbolStorage:
             [user_id],
         )
         for row in await dbc.fetchall():
-            keys[row[0]] = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
+            keys[row[0]] = self._parse_datetime(row[1])
         return keys
 
     async def get_all_notes(self, user_key: UserKey) -> Dict[str, List[NoteRow]]:
@@ -205,10 +208,9 @@ class SymbolStorage:
             if symbol in notes:
                 continue
 
-            created = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
             note_row = NoteRow(
                 symbol,
-                created,
+                self._parse_datetime(row[1]),
                 Decimal(row[2]),
                 Decimal(row[3]) if row[3] else None,
                 row[4],
@@ -253,6 +255,9 @@ class SymbolStorage:
                 user_key.uid,
             ],
         )
+
+    def _parse_datetime(self, value: str) -> datetime:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
 
 
 db: Optional[SymbolStorage] = None
