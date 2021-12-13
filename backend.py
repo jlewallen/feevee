@@ -756,7 +756,11 @@ class RefreshQueue(MessagePublisher):
 
         db = await get_db()
 
-        await db.open()
+        file_name = (
+            os.environ["FEEVEE_DB"] if "FEEVEE_DB" in os.environ else "feevee.db"
+        )
+
+        await db.open(file_name)
 
         self.charts.start(self)
         self.dailies.start(self)

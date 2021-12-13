@@ -49,7 +49,7 @@ class NoteRow:
 class SymbolStorage:
     db: Optional[aiosqlite.Connection] = None
 
-    async def open(self, path: Optional[str] = None, name: str = "feevee.db"):
+    async def open(self, name: str = "feevee.db", path: Optional[str] = None):
         log.info(f"db:opening")
         path = os.path.join(path if path else os.environ["MONEY_CACHE"], name)
         self.db = await aiosqlite.connect(path)
