@@ -207,6 +207,8 @@ async def get_prices(symbol: str) -> SymbolPrices:
 async def initialize(path: str):
     global task_
     global cache_
+    if task_:
+        return
     assert task_ is None
     log.info(f"prices:initialize")
     pool = concurrent.futures.ThreadPoolExecutor()

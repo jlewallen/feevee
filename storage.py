@@ -123,16 +123,17 @@ class SymbolStorage:
     async def get_symbol(self, symbol: str):
         assert self.db
         dbc = await self.db.execute(
-            "SELECT modified, data FROM symbols WHERE symbol = ?", [symbol]
+            "SELECT symbol, modified, data FROM symbols WHERE safe AND symbol = ?",
+            [symbol],
         )
         for row in await dbc.fetchall():
-            return SymbolRow(symbol, self._parse_datetime(row[0]), row[1])
+            return SymbolRow(row[0], self._parse_datetime(row[1]), row[2])
         return None
 
     async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
         assert self.db
         dbc = await self.db.execute(
-            "SELECT symbol, modified, data FROM symbols WHERE symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
+            "SELECT symbol, modified, data FROM symbols WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
             [user_key.uid],
         )
         rows = await dbc.fetchall()
@@ -144,6 +145,11 @@ class SymbolStorage:
     async def add_symbols(self, user_key: UserKey, symbols: List[str]):
         assert self.db
         for symbol in symbols:
+            # TODO Make data nullable in the future.
+            await self.db.execute(
+                "INSERT INTO symbols (symbol, modified, safe, data) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                [symbol, datetime.utcnow(), False, "{}"],
+            )
             await self.db.execute(
                 "INSERT INTO user_symbol (user_id, symbol) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 [user_key.uid, symbol],
@@ -153,16 +159,17 @@ class SymbolStorage:
 
         await self.db.commit()
 
-    async def set_symbol(self, symbol: str, data: Any):
+    async def set_symbol(self, symbol: str, safe: bool, data: Dict[str, Any]):
         assert self.db
         serialized = jsonpickle.encode(data)
         log.info(f"{serialized}")
         await self.db.execute(
             """
-        INSERT INTO symbols (symbol, modified, data) VALUES (?, ?, ?)
-        ON CONFLICT(symbol) DO UPDATE SET modified = excluded.modified, data = excluded.data
+        INSERT INTO symbols (symbol, modified, safe, data) VALUES (?, ?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE
+        SET modified = excluded.modified, safe = excluded.safe, data = excluded.data
   """,
-            [symbol, datetime.now(), serialized],
+            [symbol, datetime.now(), safe, serialized],
         )
         await self.db.commit()
 

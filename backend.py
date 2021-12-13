@@ -273,6 +273,11 @@ class SymbolMessage:
 
 
 @dataclass
+class CheckSymbolMessage(SymbolMessage):
+    pass
+
+
+@dataclass
 class RefreshDailyMessage(SymbolMessage):
     maximum_age: float = 86400
 
@@ -617,6 +622,43 @@ class ManageCandles(MessageHandler):
 
 
 @dataclass
+class SymbolChecker(MessageHandler):
+    async def service(
+        self,
+        messages: MessagePublisher,
+        portfolio: Portfolio,
+        stocks: List[Stock],
+    ) -> None:
+        pass
+
+    async def handle(self, messages: MessagePublisher, m: SymbolMessage):
+        assert isinstance(m, CheckSymbolMessage)
+        if FinnHubKey is None:
+            log.info(f"{m.symbol:6} check-sym:no-key")
+            return
+
+        fc = finnhub.Client(api_key=FinnHubKey)
+        res = fc.symbol_lookup(m.symbol)
+        matches = res.get("result")
+        if matches is None or len(matches) == 0:
+            log.info(f"{m.symbol:6} check-sym:no-match {res}")
+            return
+
+        exact = [match for match in matches if match["symbol"] == m.symbol]
+        if len(exact) > 1:
+            log.info(f"{m.symbol:6} check-sym:no-match {res}")
+            return
+
+        db = await get_db()
+        for match in exact:
+            log.info(f"{m.symbol:6} {exact}")
+            await db.set_symbol(m.symbol, True, dict(name=match["description"]))
+
+    async def create_throttle(self):
+        return Throttler(rate_limit=5, period=60)
+
+
+@dataclass
 class ManageIndicators(MessageHandler):
     async def service(
         self,
@@ -654,6 +696,7 @@ class RefreshQueue(MessagePublisher):
     dailies: MessageWorker
     charts: MessageWorker
     indicators: MessageWorker
+    checker: MessageWorker
     tasks: List[asyncio.Task] = field(default_factory=list)
     workers: List[MessageWorker] = field(default_factory=list)
 
@@ -667,6 +710,8 @@ class RefreshQueue(MessagePublisher):
                 await self.dailies._push(m)
             if isinstance(m, RefreshIndicatorsMessage):
                 await self.indicators._push(m)
+            if isinstance(m, CheckSymbolMessage):
+                await self.checker._push(m)
         except:
             logging.exception(f"{m} error", exc_info=True)
 
@@ -700,6 +745,7 @@ class RefreshQueue(MessagePublisher):
             self.candles.handler.service(self, portfolio, stocks),
             self.dailies.handler.service(self, portfolio, stocks),
             self.indicators.handler.service(self, portfolio, stocks),
+            self.checker.handler.service(self, portfolio, stocks),
         )
 
     async def _minute(self):
@@ -733,6 +779,7 @@ class RefreshQueue(MessagePublisher):
                 self.candles.stop()
                 self.dailies.stop()
                 self.indicators.stop()
+                self.checker.stop()
                 break
 
     def _get_watch_dir(self) -> str:
@@ -766,6 +813,7 @@ class RefreshQueue(MessagePublisher):
         self.dailies.start(self)
         self.candles.start(self)
         self.indicators.start(self)
+        self.checker.start(self)
 
         # NOTE: These are in PST!
         open_cron = "0 6 * * mon,tue,wed,thu,fri"
@@ -852,10 +900,15 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
 async def load_days_of_symbol_candles(symbol: str, days: int) -> charts.Prices:
     symbol_prices = await pricing.get_prices(symbol)
     prices = symbol_prices.candle_prices()
+    if prices.empty:
+        log.info(f"{symbol:6} candles:load-empty")
+        return charts.Prices(prices.symbol, charts.make_empty_prices_df())
     date_range = prices.date_range()
     trading_start = date_range[1].replace(hour=6, minute=30)
     start = trading_start - timedelta(days=days - 1)
-    log.info(f"{symbol:6} candles:df days={days} start={trading_start}")
+    log.info(
+        f"{symbol:6} candles:df days={days} range={date_range} start={trading_start}"
+    )
     return charts.Prices(prices.symbol, prices.daily[start:])  # type:ignore
 
 

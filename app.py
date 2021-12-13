@@ -10,10 +10,12 @@ from dataclasses import dataclass, field
 import logging, json, asyncio, itertools
 
 from backend import (
+    CheckSymbolMessage,
     chunked,
     ManageCandles,
     ManageDailies,
     ManageIndicators,
+    SymbolChecker,
     MessagePublisher,
     MessageWorker,
     Caching,
@@ -332,8 +334,14 @@ candles = MessageWorker(
 indicators = MessageWorker(ManageIndicators())
 dailies = MessageWorker(ManageDailies(tag_priorities=DefaultTagPriorities))
 web_charts = WebChartsCacheWarmer()
+symbol_checker = MessageWorker(SymbolChecker())
 refreshing = RefreshQueue(
-    repository, candles, dailies, MessageWorker(web_charts, concurrency=5), indicators
+    repository,
+    candles,
+    dailies,
+    MessageWorker(web_charts, concurrency=5),
+    indicators,
+    symbol_checker,
 )
 AdministratorUserId = 1
 
@@ -398,7 +406,10 @@ async def add_symbols():
     parsed: Dict[str, List[str]] = json.loads(raw)
 
     if parsed["adding"]:
-        await repository.add_symbols(user, parsed["symbols"])
+        symbols = parsed["symbols"]
+        await repository.add_symbols(user, symbols)
+        for symbol in symbols:
+            await refreshing.push(CheckSymbolMessage(user, symbol))
     else:
         raise NotImplementedError
 
