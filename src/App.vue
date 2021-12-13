@@ -189,7 +189,7 @@ export default {
       }
       return "/status";
     };
-    repeatedly(5000, () => {
+    repeatedly(10000, () => {
       return fetch(makeApiUrl(symbolsUrl()))
         .then((response) => response.json())
         .then((data) => {
