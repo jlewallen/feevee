@@ -107,6 +107,10 @@ async def assemble_stock_view_model(stock: Stock):
     price_change = symbol_prices.price_change()
     percent_change = symbol_prices.price_change_percentage()
     last_price = symbol_prices.price.price if symbol_prices.price else None
+    freshness: float = 0.0
+
+    if symbol_prices.price:
+        freshness = -symbol_prices.price.time.timestamp()
 
     def lot_to_json(lot):
         return dict(date=lot.date, price=float(lot.price), quantity=float(lot.quantity))
@@ -164,7 +168,9 @@ async def assemble_stock_view_model(stock: Stock):
                 virtual_tags.append("v:noted")
                 break
 
-    log.info(f"{stock.symbol:6} vm:done version={stock.version} price={last_price}")
+    log.info(
+        f"{stock.symbol:6} vm:done version={stock.version} freshness={freshness} price={last_price}"
+    )
 
     return dict(
         symbol=stock.symbol,
@@ -182,6 +188,7 @@ async def assemble_stock_view_model(stock: Stock):
         negative=percent_change < 0 if percent_change else False,
         noted_prices=stock.notes.prices,
         has_candles=not not symbol_prices.candle,
+        freshness=freshness,
         notes=[
             dict(
                 symbol=n.symbol,

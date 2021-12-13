@@ -242,10 +242,7 @@ export default {
         case SortFreshness: {
           return _.sortBy(symbols, [
             (s) => {
-              if (s.last) {
-                return -s.last.itime;
-              }
-              return 0;
+              return s.freshness;
             },
             (s) => {
               return -Number(s.percent_change);
