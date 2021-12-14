@@ -55,7 +55,7 @@
                         v-if="this.visible.has_candles"
                         v-on:click="changeDuration('2D')"
                         v-bind:class="{
-                            active: duration == '2D',
+                            active: effectiveDuration == '2D',
                         }"
                     >
                         2D
@@ -65,7 +65,7 @@
                         class="btn btn-outline-primary"
                         v-on:click="changeDuration('3M')"
                         v-bind:class="{
-                            active: duration == '3M',
+                            active: effectiveDuration == '3M',
                         }"
                     >
                         3M
@@ -75,7 +75,7 @@
                         class="btn btn-outline-primary"
                         v-on:click="changeDuration('12M')"
                         v-bind:class="{
-                            active: duration == '12M',
+                            active: effectiveDuration == '12M',
                         }"
                     >
                         1Y
@@ -113,7 +113,7 @@
             </div>
             <Chart
                 :symbol="symbol"
-                :duration="duration"
+                :duration="effectiveDuration"
                 :chartW="scaleChartW"
                 :chartH="chartH"
                 :theme="theme"
@@ -225,11 +225,8 @@ export default {
         fidelityUrl() {
             return `https://digital.fidelity.com/prgw/digital/research/quote/dashboard?symbol=${this.symbol}`;
         },
-        months() {
-            return this.expanded ? 12 : 4;
-        },
-        days() {
-            return this.expanded ? 3 : 2;
+        effectiveDuration() {
+            return this.duration;
         },
         scaleChartW() {
             if (this.scale <= 2) {
@@ -242,6 +239,16 @@ export default {
         },
         notesFactor() {
             return getNotesFactor(this.visible);
+        },
+    },
+    watch: {
+        expanded(after, before) {
+            console.log("expanded-change", before, after);
+            if (after) {
+                if (this.duration == "3M") {
+                    this.duration = "12M";
+                }
+            }
         },
     },
     methods: {
@@ -432,7 +439,7 @@ export default {
 }
 
 .symbol-container .btn-group .btn {
-    padding: 3px;
+    padding: 1px 3px 1px 3px;
 }
 
 .symbol-container.expanded {
