@@ -108,10 +108,10 @@ class SymbolPrices:
             one_year = file.df[today - relativedelta(months=12) : today]  # type: ignore
             self.one_year_range = price_range(one_year)
 
-            log.info(f"{self.symbol:6} prices:daily-end = {self.daily_end}")
+            log.info(f"{self.symbol:6} prices:dailies = {self.daily_end}")
         else:
             self.candle = file_end
-            log.info(f"{self.symbol:6} prices:candle = {self.candle}")
+            log.info(f"{self.symbol:6} prices:candles = {self.candle}")
 
     def daily_prices(self) -> charts.Prices:
         for file in [f for f in self.files.values() if f.daily]:

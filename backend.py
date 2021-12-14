@@ -1063,7 +1063,7 @@ async def chunked(name: str, items: List[Any], fn: Callable):
         started = datetime.utcnow()
         vms = await asyncio.gather(*[fn(item) for item in batch])
         elapsed = datetime.utcnow() - started
-        log.info(f"{'':6} {name} elapsed={elapsed} size={len(batch)}")
+        log.info(f"{name} elapsed={elapsed} size={len(batch)}")
         return vms
 
     batched = chunked_iterable(items, size=10)
