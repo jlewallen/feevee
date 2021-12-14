@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Sequence, Tuple, Iterable
+from typing import List, Dict, Optional, Sequence, Tuple, Iterable, Any
 from decimal import Decimal, ROUND_HALF_UP
 from quart import Quart, send_from_directory, request, Response
 from quart import json as quart_json
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from aiocache import cached
 from dataclasses import dataclass, field
-import logging, json, asyncio, itertools
+import logging, json, re, asyncio, itertools
 
 from backend import (
     CheckSymbolMessage,
@@ -210,6 +210,7 @@ async def _render_ohlc(
     style: str,
     trading_hours_only: bool = False,
     show_last_buy: bool = False,
+    **kwargs,
 ):
     symbol = stock.symbol
     theme = get_theme(style)
@@ -250,30 +251,55 @@ async def _render_ohlc(
         marks=marks,
         colors=theme.colors,
         trading_hours_only=trading_hours_only,
+        **kwargs,
     )
     return Response(data, mimetype="image/png")
 
 
-def _render_candles_key(fn, stock: Stock, days: int, w: int, h: int, style: str) -> str:
-    return finish_key(["candles"] + stock.key() + [str(v) for v in [days, w, h, style]])
+months_pattern = re.compile("(\d+)M")
+days_pattern = re.compile("(\d+)D")
 
 
-@cached(key_builder=_render_candles_key, **Caching)
-async def render_candles(stock: Stock, days: int, w: int, h: int, style: str):
-    log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {style}")
-    candles = await load_days_of_symbol_candles(stock.symbol, days)
-    return await _render_ohlc(stock, candles, w, h, style, trading_hours_only=True)
+async def get_prices_for_duration(symbol: str, duration: str) -> charts.Prices:
+    if m := months_pattern.match(duration):
+        return await load_months_of_symbol_prices(symbol, int(m.group(1)))
+    if m := days_pattern.match(duration):
+        return await load_days_of_symbol_candles(symbol, int(m.group(1)))
+    raise Exception(f"unknown duration: {duration}")
 
 
-def _render_ohlc_key(fn, stock: Stock, months: int, w: int, h: int, style: str) -> str:
-    return finish_key(["ohlc"] + stock.key() + [str(v) for v in [months, w, h, style]])
+def get_rolling_mean(options: List[str]) -> Dict[str, Any]:
+    if "5MA" in options:
+        return dict(rolling_mean=5)
+    if "21MA" in options:
+        return dict(rolling_mean=21)
+    if "200MA" in options:
+        return dict(rolling_mean=200)
+    return dict()
+
+
+async def get_options(options: List[str]) -> Dict[str, Any]:
+    return dict(**get_rolling_mean(options))
+
+
+def _render_ohlc_key(
+    fn, stock: Stock, duration: str, w: int, h: int, style: str, options: List[str]
+) -> str:
+    return finish_key(
+        ["ohlc"] + stock.key() + [str(v) for v in [duration, w, h, style]] + options
+    )
 
 
 @cached(key_builder=_render_ohlc_key, **Caching)
-async def render_ohlc(stock: Stock, months: int, w: int, h: int, style: str):
-    log.info(f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {months} {style}")
-    prices = await load_months_of_symbol_prices(stock.symbol, months)
-    return await _render_ohlc(stock, prices, w, h, style)
+async def render_ohlc(
+    stock: Stock, duration: str, w: int, h: int, style: str, options: List[str]
+):
+    prices = await get_prices_for_duration(stock.symbol, duration)
+    kwargs = await get_options(options)
+    log.info(
+        f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {duration} {style} {options} {kwargs}"
+    )
+    return await _render_ohlc(stock, prices, w, h, style, **kwargs)
 
 
 @dataclass
@@ -304,10 +330,8 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
         stock = await repository.get_stock(m.user, m.symbol)
         for template in self.templates:
             for theme in Themes:
-                for months in [4]:
-                    await render_ohlc(stock, months, template.w, template.h, theme)
-                for days in [2]:
-                    await render_candles(stock, days, template.w, template.h, theme)
+                for duration in ["3M", "12M"]:
+                    await render_ohlc(stock, duration, template.w, template.h, theme)
 
 
 class JSONEncoder(quart_json.JSONEncoder):
@@ -441,19 +465,20 @@ async def refresh_symbol(symbol: str):
     return dict()
 
 
-@app.route("/symbols/<symbol>/ohlc/<int:months>/<int:w>/<int:h>/<style>")
-async def get_chart(symbol: str, months: int, w: int, h: int, style: str):
+def parse_options() -> List[str]:
+    options_raw = request.args.get("options")
+    if options_raw:
+        return options_raw.split(",")
+    return []
+
+
+@app.route("/symbols/<symbol>/ohlc/<duration>/<int:w>/<int:h>/<style>")
+async def get_chart(symbol: str, duration: str, w: int, h: int, style: str):
     user = await get_user()
     await web_charts.include_template(w, h)
     stock = await repository.get_stock(user, symbol)
-    return await render_ohlc(stock, months, w, h, style)
-
-
-@app.route("/symbols/<symbol>/candles/<int:days>/<int:w>/<int:h>/<style>")
-async def get_candles(symbol: str, days: int, w: int, h: int, style: str):
-    user = await get_user()
-    stock = await repository.get_stock(user, symbol)
-    return await render_candles(stock, days, w, h, style)
+    options = parse_options()
+    return await render_ohlc(stock, duration, w, h, style, options)
 
 
 @app.route("/symbols/<symbol>/notes", methods=["POST"])

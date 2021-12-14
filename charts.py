@@ -28,11 +28,32 @@ class Colors:
     text: str
     grid: str
     volume: str
+    indicator: str
 
 
-Light = Colors(bg="#ffffff", text="#000000", grid="#e6e6e6", volume="#000000")
-Dark = Colors(bg="#111111", text="#ffffff", grid="#2e2e2e", volume="#999999")
-Paper = Colors(bg="#fff1e5", text="#000000", grid="#e6e6e6", volume="#000000")
+Light = Colors(
+    bg="#ffffff",
+    text="#000000",
+    grid="#e6e6e6",
+    volume="#000000",
+    indicator="#9b59b6",
+)
+
+Dark = Colors(
+    bg="#111111",
+    text="#ffffff",
+    grid="#2e2e2e",
+    volume="#999999",
+    indicator="#9b59b6",
+)
+
+Paper = Colors(
+    bg="#fff1e5",
+    text="#000000",
+    grid="#e6e6e6",
+    volume="#000000",
+    indicator="#9b59b6",
+)
 
 
 @dataclass
@@ -232,6 +253,7 @@ def _render_ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
+    rolling_mean: Optional[int] = None,
 ):
     show_last_value_marker = True
 
@@ -298,6 +320,23 @@ def _render_ohlc(
     )
 
     fig.add_trace(volume)
+
+    if rolling_mean:
+        average_series = (
+            prices.daily[DailyCloseColumn].rolling(window=f"{rolling_mean}D").mean()
+        )
+        moving_average = go.Scatter(
+            x=prices.daily.index,
+            y=average_series,
+            line=go.scatter.Line(width=1.0, color=colors.indicator),
+            name=title,
+            visible=True,
+            showlegend=False,
+            xaxis="x",
+            yaxis="y",
+        )
+
+        fig.add_trace(moving_average, secondary_y=True)
 
     ohlc = go.Ohlc(
         x=prices.daily.index,
@@ -440,6 +479,7 @@ async def ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
+    rolling_mean: Optional[int] = None,
 ):
     global pool
     if pool is None:
@@ -448,7 +488,15 @@ async def ohlc(
 
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        pool, _render_ohlc, prices, title, size, marks, colors, trading_hours_only
+        pool,
+        _render_ohlc,
+        prices,
+        title,
+        size,
+        marks,
+        colors,
+        trading_hours_only,
+        rolling_mean,
     )
 
 
