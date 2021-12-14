@@ -220,6 +220,26 @@ async def load_symbol_notes(user: UserKey, symbol: str) -> Notes:
     return Notes()
 
 
+def get_user_symbols_key(fn, portfolio: Portfolio) -> str:
+    price_key = finish_key(
+        [portfolio.get_symbol_key(symbol) or "" for symbol in portfolio.symbols]
+    )
+    meta_key = finish_key(
+        [pricing.get_symbol_prices_cache_key(symbol) for symbol in portfolio.symbols]
+    )
+    keys = [
+        hashlib.sha1(bytes(price_key, encoding="utf8")).hexdigest(),
+        hashlib.sha1(bytes(meta_key, encoding="utf8")).hexdigest(),
+    ]
+    return finish_key(
+        [
+            fn.__name__,
+            str(portfolio.user),
+        ]
+        + keys
+    )
+
+
 def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
     return finish_key(
         [
@@ -830,8 +850,13 @@ class RefreshQueue(MessagePublisher):
 
 @dataclass
 class SymbolRepository:
-    async def get_all_stocks(self, user: UserKey) -> List[Stock]:
-        portfolio = await load_portfolio(user)
+    async def get_portfolio(self, user: UserKey) -> Portfolio:
+        return await load_portfolio(user)
+
+    async def get_all_stocks(
+        self, user: UserKey, portfolio: Optional[Portfolio] = None
+    ) -> List[Stock]:
+        portfolio = portfolio if portfolio else await self.get_portfolio(user)
         return await chunked(
             "batch-db",
             portfolio.symbols,
@@ -841,12 +866,12 @@ class SymbolRepository:
     async def get_stock(
         self, user: UserKey, symbol: str, portfolio: Optional[Portfolio] = None
     ) -> Stock:
-        portfolio = portfolio if portfolio else await load_portfolio(user)
+        portfolio = portfolio if portfolio else await self.get_portfolio(user)
         return await load_stock(portfolio, symbol)
 
     async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
         db = await get_db()
-        portfolio = await load_portfolio(user)
+        portfolio = await self.get_portfolio(user)
         notes = await db.get_notes(user, symbol)
         if len(notes) == 0 or notes[0].body != body:
             user = await db.add_notes(

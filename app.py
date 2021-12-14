@@ -11,6 +11,7 @@ import logging, json, re, asyncio, itertools
 
 from backend import (
     CheckSymbolMessage,
+    Portfolio,
     chunked,
     ManageCandles,
     ManageDailies,
@@ -33,6 +34,7 @@ from backend import (
     finish_key,
     load_days_of_symbol_candles,
     load_months_of_symbol_prices,
+    get_user_symbols_key,
 )
 from loggers import setup_logging_queue
 from storage import UserKey, get_db
@@ -387,13 +389,19 @@ async def get_user() -> UserKey:
     return maybe_user
 
 
+@cached(key_builder=get_user_symbols_key, **Caching)
+async def get_user_symbols(portfolio: Portfolio):
+    stocks = await repository.get_all_stocks(portfolio.user, portfolio=portfolio)
+    return await chunked(
+        "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
+    )
+
+
 @app.route("/status")
 async def status():
     user = await get_user()
-    stocks = await repository.get_all_stocks(user)
-    symbols = await chunked(
-        "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
-    )
+    portfolio = await repository.get_portfolio(user)
+    symbols = await get_user_symbols(portfolio)
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 
 
