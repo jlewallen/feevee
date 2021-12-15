@@ -85,16 +85,6 @@
                     <button
                         type="button"
                         class="btn btn-outline-primary"
-                        v-on:click="toggleOption('21MA')"
-                        v-bind:class="{
-                            active: isOptionEnabled('21MA'),
-                        }"
-                    >
-                        21MA
-                    </button>
-                    <button
-                        type="button"
-                        class="btn btn-outline-primary"
                         v-on:click="toggleOption('200MA')"
                         v-bind:class="{
                             active: isOptionEnabled('200MA'),
@@ -247,6 +237,10 @@ export default {
             if (after) {
                 if (this.duration == "3M") {
                     this.duration = "12M";
+                }
+            } else {
+                if (this.duration == "12M") {
+                    this.duration = "3M";
                 }
             }
         },
