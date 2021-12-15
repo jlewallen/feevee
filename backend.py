@@ -926,7 +926,7 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
 
 
 def subtract_days(f: datetime, days: int) -> datetime:
-    if f.weekday == 0:
+    if f.weekday() == 0:
         return f - timedelta(days=days + 2)
     return f - timedelta(days=days)
 
