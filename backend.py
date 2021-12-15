@@ -677,6 +677,8 @@ class SymbolChecker(MessageHandler):
             log.info(f"{m.symbol:6} {exact}")
             await db.set_symbol(m.symbol, True, dict(name=match["description"]))
 
+        await messages.push(RefreshDailyMessage(m.user, m.symbol, maximum_age=0))
+
     async def create_throttle(self):
         return Throttler(rate_limit=5, period=60)
 
