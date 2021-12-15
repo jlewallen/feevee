@@ -32,20 +32,19 @@
                 </span>
                 <span class="basis" v-if="visible.position">
                     <span class="units">B</span>
-                    ${{ visible.position.basis_price }}
+                    <span>${{ visible.position.basis_price }}</span>
                 </span>
                 <span class="total-value" v-if="visible.position">
                     <span class="units">T</span>
-                    ${{ visible.position.total_value }}
-
-                    <span class="portfolio-value" v-if="portfolioValue > 0">
-                        {{ ((visible.position.total_value / portfolioValue) * 100).toFixed(1) }}
-                        <span class="units">%</span>
-                    </span>
-                    <span class="portfolio-value" v-if="portfolioValue != visibleValue">
-                        {{ ((visible.position.total_value / visibleValue) * 100).toFixed(1) }}
-                        <span class="units">%V</span>
-                    </span>
+                    <span>${{ visible.position.total_value }}</span>
+                </span>
+                <span class="portfolio-value" v-if="visible.position && portfolioValue > 0">
+                    <span>{{ ((visible.position.total_value / portfolioValue) * 100).toFixed(1) }}</span>
+                    <span class="units">%</span>
+                </span>
+                <span class="portfolio-value" v-if="visible.position && portfolioValue != visibleValue">
+                    <span>{{ ((visible.position.total_value / visibleValue) * 100).toFixed(1) }}</span>
+                    <span class="units">%V</span>
                 </span>
                 <span class="factors" v-if="notesFactor">{{ notesFactor.toFixed(2) }}</span>
                 <span class="btn-group btn-group-sm" role="group">
@@ -307,8 +306,8 @@ export default {
     padding: 10px;
 }
 
-.stock .header div,
-.stock .header span {
+.stock .header > div,
+.stock .header > span {
     padding-right: 0.35em;
 }
 
