@@ -965,13 +965,6 @@ async def load_symbol_prices(symbol: str):
     return with_candles
 
 
-async def load_months_of_symbol_prices(symbol: str, months: int):
-    prices = await load_symbol_prices(symbol)
-    today = datetime.utcnow()
-    start = today - relativedelta(months=months)
-    return prices.history(start, today)
-
-
 @dataclass
 class Candle:
     time: datetime

@@ -253,7 +253,7 @@ def _render_ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
-    rolling_mean: Optional[int] = None,
+    indicators: List[Series] = [],
 ):
     show_last_value_marker = True
 
@@ -321,22 +321,20 @@ def _render_ohlc(
 
     fig.add_trace(volume)
 
-    if rolling_mean:
-        average_series = (
-            prices.daily[DailyCloseColumn].rolling(window=f"{rolling_mean}D").mean()
-        )
-        moving_average = go.Scatter(
-            x=prices.daily.index,
-            y=average_series,
-            line=go.scatter.Line(width=1.0, color=colors.indicator),
-            name=title,
-            visible=True,
-            showlegend=False,
-            xaxis="x",
-            yaxis="y",
-        )
+    for series in prices.daily:
+        if series.startswith("I:"):
+            indicator_trace = go.Scatter(
+                x=prices.daily.index,
+                y=prices.daily[series],
+                line=go.scatter.Line(width=1.0, color=colors.indicator),
+                name=title,
+                visible=True,
+                showlegend=False,
+                xaxis="x",
+                yaxis="y",
+            )
 
-        fig.add_trace(moving_average, secondary_y=True)
+            fig.add_trace(indicator_trace, secondary_y=True)
 
     ohlc = go.Ohlc(
         x=prices.daily.index,
@@ -494,7 +492,7 @@ async def ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
-    rolling_mean: Optional[int] = None,
+    indicators: Optional[Series] = None,
 ):
     global pool
     if pool is None:
@@ -511,7 +509,7 @@ async def ohlc(
         marks,
         colors,
         trading_hours_only,
-        rolling_mean,
+        indicators,
     )
 
 

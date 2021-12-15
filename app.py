@@ -33,7 +33,7 @@ from backend import (
     is_market_open,
     finish_key,
     load_days_of_symbol_candles,
-    load_months_of_symbol_prices,
+    load_symbol_prices,
     get_user_symbols_key,
 )
 from loggers import setup_logging_queue
@@ -260,28 +260,34 @@ async def _render_ohlc(
 
 months_pattern = re.compile("(\d+)M")
 days_pattern = re.compile("(\d+)D")
+ma_pattern = re.compile("(\d+)MA")
 
 
-async def get_prices_for_duration(symbol: str, duration: str) -> charts.Prices:
+async def load_months_of_symbol_prices(symbol: str, months: int, options: List[str]):
+    prices = await load_symbol_prices(symbol)
+    for option in options:
+        if m := ma_pattern.match(option):
+            days = int(m.group(1))
+            prices.daily[f"I:{days}MA"] = (
+                prices.daily[charts.DailyCloseColumn].rolling(window=f"{days}D").mean()
+            )
+    today = datetime.utcnow()
+    start = today - relativedelta(months=months)
+    return prices.history(start, today)
+
+
+async def get_prices_for_duration(
+    symbol: str, duration: str, options: List[str]
+) -> charts.Prices:
     if m := months_pattern.match(duration):
-        return await load_months_of_symbol_prices(symbol, int(m.group(1)))
+        return await load_months_of_symbol_prices(symbol, int(m.group(1)), options)
     if m := days_pattern.match(duration):
         return await load_days_of_symbol_candles(symbol, int(m.group(1)))
     raise Exception(f"unknown duration: {duration}")
 
 
-def get_rolling_mean(options: List[str]) -> Dict[str, Any]:
-    if "5MA" in options:
-        return dict(rolling_mean=5)
-    if "21MA" in options:
-        return dict(rolling_mean=21)
-    if "200MA" in options:
-        return dict(rolling_mean=200)
-    return dict()
-
-
-async def get_options(duration: str, options: List[str]) -> Dict[str, Any]:
-    return dict(trading_hours_only="D" in duration, **get_rolling_mean(options))
+async def get_options(symbol: str, duration: str, options: List[str]) -> Dict[str, Any]:
+    return dict(trading_hours_only="D" in duration)
 
 
 def _render_ohlc_key(
@@ -296,8 +302,8 @@ def _render_ohlc_key(
 async def render_ohlc(
     stock: Stock, duration: str, w: int, h: int, style: str, options: List[str]
 ):
-    prices = await get_prices_for_duration(stock.symbol, duration)
-    kwargs = await get_options(duration, options)
+    prices = await get_prices_for_duration(stock.symbol, duration, options)
+    kwargs = await get_options(stock.symbol, duration, options)
     log.info(
         f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {duration} {style} {options} {kwargs}"
     )
