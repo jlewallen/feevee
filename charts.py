@@ -355,6 +355,9 @@ def _render_ohlc(
     if show_last_value_marker and have_data:
         price_range = prices.price_range()
 
+        def constrained(value: Decimal) -> bool:
+            return value > price_range[1] or value < price_range[0]
+
         def constrain(value: Decimal) -> Decimal:
             return min(max(value, price_range[0]), price_range[1])
 
@@ -364,7 +367,7 @@ def _render_ohlc(
             make_y_arrow(
                 constrain(mark.price) if mark.constrain else mark.price,
                 f"{mark.price}",
-                1.0,
+                0.80 if constrained(mark.price) else 1.0,
                 mark.color,
                 mark.text_color,
             )
