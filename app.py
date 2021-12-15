@@ -339,7 +339,9 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
         for template in self.templates:
             for theme in Themes:
                 for duration in ["3M", "12M"]:
-                    await render_ohlc(stock, duration, template.w, template.h, theme)
+                    await render_ohlc(
+                        stock, duration, template.w, template.h, theme, []
+                    )
 
 
 class JSONEncoder(quart_json.JSONEncoder):
