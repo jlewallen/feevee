@@ -280,8 +280,8 @@ def get_rolling_mean(options: List[str]) -> Dict[str, Any]:
     return dict()
 
 
-async def get_options(options: List[str]) -> Dict[str, Any]:
-    return dict(**get_rolling_mean(options))
+async def get_options(duration: str, options: List[str]) -> Dict[str, Any]:
+    return dict(trading_hours_only="D" in duration, **get_rolling_mean(options))
 
 
 def _render_ohlc_key(
@@ -297,7 +297,7 @@ async def render_ohlc(
     stock: Stock, duration: str, w: int, h: int, style: str, options: List[str]
 ):
     prices = await get_prices_for_duration(stock.symbol, duration)
-    kwargs = await get_options(options)
+    kwargs = await get_options(duration, options)
     log.info(
         f"{stock.symbol:6} rendering {stock.key()} {w}x{h} {duration} {style} {options} {kwargs}"
     )

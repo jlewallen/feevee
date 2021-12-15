@@ -393,6 +393,7 @@ def _render_ohlc(
                 dict(bounds=[13, 6.5], pattern="hour"),
             ],
         )
+
         fig.update_layout(
             xaxis_tickformatstops=[
                 dict(dtickrange=[None, 1000], value="%H:%M:%S.%L ms"),
@@ -404,6 +405,12 @@ def _render_ohlc(
                 dict(dtickrange=["M1", "M12"], value="%b '%y M"),
                 dict(dtickrange=["M12", None], value="%Y Y"),
             ]
+        )
+    else:
+        fig.update_xaxes(
+            rangebreaks=[
+                dict(bounds=["sat", "mon"]),
+            ],
         )
 
     fig.update_layout(
