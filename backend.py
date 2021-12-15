@@ -925,6 +925,12 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
     return copy
 
 
+def subtract_days(f: datetime, days: int) -> datetime:
+    if f.weekday == 0:
+        return f - timedelta(days=days + 2)
+    return f - timedelta(days=days)
+
+
 async def load_days_of_symbol_candles(symbol: str, days: int) -> charts.Prices:
     symbol_prices = await pricing.get_prices(symbol)
     prices = symbol_prices.candle_prices()
@@ -932,10 +938,10 @@ async def load_days_of_symbol_candles(symbol: str, days: int) -> charts.Prices:
         log.info(f"{symbol:6} candles:load-empty")
         return charts.Prices(prices.symbol, charts.make_empty_prices_df())
     date_range = prices.date_range()
-    trading_start = date_range[1].replace(hour=6, minute=30)
-    start = trading_start - timedelta(days=days - 1)
+    end = date_range[1]
+    start = subtract_days(end, days)
     log.info(
-        f"{symbol:6} candles:df days={days} range={date_range} start={trading_start}"
+        f"{symbol:6} candles:df days={days} range={date_range} start={start} end={end}"
     )
     return charts.Prices(prices.symbol, prices.daily[start:])  # type:ignore
 

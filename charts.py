@@ -70,7 +70,7 @@ class Prices:
     def market_hours_only(self) -> "Prices":
         filtered = self.daily.between_time("6:30", "13:00")
         log.info(
-            f"prices:market-hours daily={len(self.daily.index)} filtered={len(filtered.index)}"
+            f"{self.symbol:6} prices:market-hours daily={len(self.daily.index)} filtered={len(filtered.index)}"
         )
         return Prices(self.symbol, filtered)
 
@@ -378,12 +378,20 @@ def _render_ohlc(
 
     if trading_hours_only:
         date_range = prices.date_range()
-        trading_today = date_range[1].replace(hour=6, minute=30)
+        range_delta = date_range[1] - date_range[0]
+        trading_today = date_range[1].replace(
+            hour=6, minute=30, second=0, microsecond=0
+        )
+        days_in_range = range_delta.days
+        tick_values = [
+            trading_today - timedelta(days=i) for i in range(days_in_range + 1)
+        ]
+        tick_labels = ["6:30" for i in range(days_in_range + 1)]
         fig.update_layout(
             xaxis=dict(
                 tickmode="array",
-                tickvals=[trading_today - timedelta(hours=24 * i) for i in range(2)],
-                ticktext=["6:30" for i in range(2)],
+                tickvals=tick_values,
+                ticktext=tick_labels,
             )
         )
 
