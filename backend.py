@@ -150,9 +150,6 @@ def flatten(a):
     return [leaf for sl in a for leaf in sl]
 
 
-3
-
-
 async def load_meta() -> Dict[str, Dict[str, Any]]:
     meta: Dict[str, Dict[str, Any]] = dict()
     for key, path in MetaPaths.items():
