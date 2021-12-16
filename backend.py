@@ -528,7 +528,7 @@ class ManageDailies(MessageHandler):
 
         async with self.throttler:
             ts = TimeSeries(key=AlphaVantageKey, output_format="pandas")
-            data, meta = ts.get_daily(symbol=m.symbol, outputsize="full")
+            data, meta = ts.get_daily_adjusted(symbol=m.symbol, outputsize="full")
             data.to_csv(daily_path)
 
             log.info(f"{m.symbol:6} daily:wrote")
@@ -642,8 +642,6 @@ class ManageCandles(MessageHandler):
                 return
 
         await write_json_file(res, charts.get_relative_candles_path(m.symbol))
-
-        log.info(f"{m.symbol:6} candles:wrote:json")
 
         try:
             await self._append_candles(m, res)

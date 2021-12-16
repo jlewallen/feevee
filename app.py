@@ -438,12 +438,17 @@ async def render():
 
 
 async def _basic_refresh(user: UserKey, symbol: str):
-    if request.args.get("daily"):
-        await refreshing.push(RefreshDailyMessage(user, symbol))
     if request.args.get("candles"):
         await refreshing.push(RefreshCandlesMessage(user, symbol))
     if request.args.get("indicators"):
         await refreshing.push(RefreshIndicatorsMessage(user, symbol))
+    if request.args.get("daily"):
+        force = request.args.get("force")
+        await refreshing.push(
+            RefreshDailyMessage(user, symbol, maximum_age=0)
+            if force
+            else RefreshDailyMessage(user, symbol)
+        )
 
 
 @app.route("/symbols", methods=["POST"])
