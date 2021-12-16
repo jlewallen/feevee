@@ -1,6 +1,6 @@
 #!env/bin/python3
 
-import logging, asyncio, os, aiofiles.os
+import logging, asyncio, os, aiofiles.os, json
 import finnhub
 from pytz import timezone
 from time import mktime
@@ -11,7 +11,7 @@ from backend import MoneyCache, SymbolRepository, write_json_file
 from storage import UserKey, get_db
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
-throttler: Throttler = Throttler(rate_limit=30, period=60)
+throttler: Throttler = Throttler(rate_limit=10, period=60)
 log = logging.getLogger("feevee")
 
 
@@ -64,9 +64,20 @@ async def main():
 
         await get_earnings_calendar()
 
+        today = datetime.today()
+        today_str = today.strftime("%Y%m%d")
+
         for stock in stocks:
-            if stock.info and stock.info.earnings:
+            if stock.info and stock.info.options:
                 log.info(f"{stock.symbol:6} processing")
+
+                todays_chain_path = f"chain-{today_str}-{stock.symbol}.json"
+                if await is_missing(todays_chain_path):
+                    async with throttler:
+                        fc = finnhub.Client(api_key=FinnHubKey)
+                        res = json.loads(fc.option_chain(symbol=stock.symbol))
+                        await write_json_file(res, todays_chain_path)
+
     finally:
         log.info(f"closing")
         await db.close()

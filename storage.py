@@ -35,6 +35,7 @@ class SymbolRow:
     modified: datetime
     earnings: bool
     candles: bool
+    options: bool
     data: str
 
 
@@ -81,7 +82,7 @@ class SymbolStorage:
         )
 
         await self.db.execute(
-            "CREATE TABLE IF NOT EXISTS symbols (symbol TEXT NOT NULL, modified DATETIME NOT NULL, safe BOOL NOT NULL, earnings BOOL NOT NULL, candles BOOL NOT NULL, data TEXT NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS symbols (symbol TEXT NOT NULL, modified DATETIME NOT NULL, safe BOOL NOT NULL, earnings BOOL NOT NULL, candles BOOL NOT NULL, options BOOL NOT NULL, data TEXT NOT NULL)"
         )
         await self.db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS symbols_symbol_idx ON symbols (symbol)"
@@ -125,25 +126,25 @@ class SymbolStorage:
     async def get_symbol(self, symbol: str):
         assert self.db
         dbc = await self.db.execute(
-            "SELECT symbol, modified, earnings, candles, data FROM symbols WHERE safe AND symbol = ?",
+            "SELECT symbol, modified, earnings, candles, options, data FROM symbols WHERE safe AND symbol = ?",
             [symbol],
         )
         for row in await dbc.fetchall():
             return SymbolRow(
-                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4]
+                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
             )
         return None
 
     async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
         assert self.db
         dbc = await self.db.execute(
-            "SELECT symbol, modified, earnings, candles, data FROM symbols WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
+            "SELECT symbol, modified, earnings, candles, options, data FROM symbols WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
             [user_key.uid],
         )
         rows = await dbc.fetchall()
         return {
             row[0]: SymbolRow(
-                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4]
+                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
             )
             for row in rows
         }
@@ -153,8 +154,8 @@ class SymbolStorage:
         for symbol in symbols:
             # TODO Make data nullable in the future.
             await self.db.execute(
-                "INSERT INTO symbols (symbol, modified, candles, earnings, safe, data) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                [symbol, datetime.utcnow(), True, False, False, "{}"],
+                "INSERT INTO symbols (symbol, modified, candles, earnings, candles, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                [symbol, datetime.utcnow(), True, False, False, False, "{}"],
             )
             await self.db.execute(
                 "INSERT INTO user_symbol (user_id, symbol) VALUES (?, ?) ON CONFLICT DO NOTHING",
@@ -171,11 +172,11 @@ class SymbolStorage:
         log.info(f"{serialized}")
         await self.db.execute(
             """
-        INSERT INTO symbols (symbol, modified, candles, earnings, safe, data) VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO symbols (symbol, modified, candles, options, earnings, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(symbol) DO UPDATE
         SET modified = excluded.modified, safe = excluded.safe, data = excluded.data
   """,
-            [symbol, datetime.now(), True, False, safe, serialized],
+            [symbol, datetime.now(), True, False, False, safe, serialized],
         )
         await self.db.commit()
 
