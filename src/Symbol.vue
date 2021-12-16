@@ -92,6 +92,9 @@
                         200MA
                     </button>
                 </span>
+                <span class="options-chain">
+                    <a :href="optionsChainUrl" target="_blank">chain</a>
+                </span>
                 <span class="tag" v-for="tag in visible.tags" v-bind:key="tag">
                     <router-link :to="'/tags/' + tag">#{{ tag }}</router-link>
                 </span>
@@ -213,6 +216,9 @@ export default {
         },
         fidelityUrl() {
             return `https://digital.fidelity.com/prgw/digital/research/quote/dashboard?symbol=${this.symbol}`;
+        },
+        optionsChainUrl() {
+            return `https://researchtools.fidelity.com/ftgw/mloptions/goto/optionChain?cusip=&symbol=${this.symbol}&Search=Search&symbols=${this.symbol}&showsymbols=N&sortBy=EXDATE_EXTYPE_OPTYPE_ADJ`;
         },
         effectiveDuration() {
             return this.duration;
