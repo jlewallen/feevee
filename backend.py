@@ -184,11 +184,21 @@ async def load_portfolio(user: UserKey) -> Portfolio:
     return Portfolio(user, all_symbols, lots, meta)
 
 
+def _load_all_symbols_key(fn, user: UserKey):
+    return finish_key([fn.__name__, str(user)])
+
+
+@cached(key_builder=_load_all_symbols_key, **Caching)
 async def load_all_symbols(user: UserKey):
     db = await get_db()
     return await db.get_all_symbols(user)
 
 
+def _load_all_notes_key(fn, user: UserKey):
+    return finish_key([fn.__name__, str(user)])
+
+
+@cached(key_builder=_load_all_notes_key, **Caching)
 async def load_all_notes(user: UserKey):
     db = await get_db()
     return await db.get_all_notes(user)
