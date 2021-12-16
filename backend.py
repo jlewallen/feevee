@@ -557,7 +557,7 @@ async def backup_daily_file(path: str):
 
 
 async def write_json_file(data: Any, path: str):
-    json_path = os.path.join(MoneyCache, path)
+    json_path = os.path.join(os.path.join(MoneyCache, ".av"), path)
     await backup_daily_file(json_path)
     async with aiofiles.open(json_path, mode="w") as file:
         await file.write(json.dumps(data))
