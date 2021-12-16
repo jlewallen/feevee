@@ -563,6 +563,14 @@ async def write_json_file(data: Any, path: str):
         await file.write(json.dumps(data))
 
 
+async def is_missing(path: str) -> bool:
+    try:
+        await aiofiles.os.stat(os.path.join(os.path.join(MoneyCache, ".av"), path))
+        return False
+    except FileNotFoundError:
+        return True
+
+
 @dataclass
 class ManageCandles(MessageHandler):
     tag_priorities: Dict[str, float] = field(default_factory=dict)
@@ -637,8 +645,6 @@ class ManageCandles(MessageHandler):
             if res["s"] != "ok":
                 log.info(f"{m.symbol:6} candles:no-data")
                 return
-
-        await write_json_file(res, charts.get_relative_candles_path(m.symbol))
 
         try:
             await self._append_candles(m, res)

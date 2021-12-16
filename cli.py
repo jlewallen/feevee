@@ -5,22 +5,14 @@ import finnhub
 from pytz import timezone
 from time import mktime
 from dateutil.relativedelta import relativedelta
-from asyncio_throttle import Throttler, throttler  # type: ignore
+from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
-from backend import MoneyCache, SymbolRepository, write_json_file
+from backend import MoneyCache, SymbolRepository, is_missing, write_json_file
 from storage import UserKey, get_db
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
 throttler: Throttler = Throttler(rate_limit=10, period=60)
 log = logging.getLogger("feevee")
-
-
-async def is_missing(path: str) -> bool:
-    try:
-        if await aiofiles.os.stat(os.path.join(MoneyCache, path)):
-            return False
-    except FileNotFoundError:
-        return True
 
 
 async def get_earnings_calendar():

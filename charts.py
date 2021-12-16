@@ -138,10 +138,6 @@ class Prices:
         return Prices(self.symbol, self.daily.copy())
 
 
-def get_relative_candles_path(symbol: str) -> str:
-    return f".av/{symbol}-candles.json"
-
-
 def get_relative_candles_csv_path(symbol: str) -> str:
     return f".av/{symbol}-candles.csv"
 
