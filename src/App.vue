@@ -22,6 +22,9 @@
                 links:
                 <a href="https://money.cnn.com/data/fear-and-greed/" target="blank">f&g index</a>
             </div>
+            <form class="form-inline">
+                <input type="text" v-model="form.filter" />
+            </form>
         </div>
         <div class="tags">
             <span
@@ -63,6 +66,9 @@ export default {
             symbols: [],
             market: {
                 open: false,
+            },
+            form: {
+                filter: "",
             },
             theme: theme || "dark",
             sort: sort || SortPriority,
@@ -112,12 +118,14 @@ export default {
             return null;
         },
         visible() {
-            if (this.tag) {
-                return _.filter(this.symbols, (s) => {
-                    return _.indexOf(s.tags, this.tag) >= 0;
-                });
-            }
-            return this.symbols;
+            return _(this.symbols)
+                .filter((s) => {
+                    return !this.tag || _.indexOf(s.tags, this.tag) >= 0;
+                })
+                .filter((s) => {
+                    return this.form.filter.length == 0 || s.symbol.indexOf(this.form.filter) >= 0;
+                })
+                .value();
         },
         visibleSymbols() {
             return this.visible.map((stock) => stock.symbol);
@@ -166,6 +174,9 @@ export default {
         });
     },
     methods: {
+        onFilterChange() {
+            console.log("filter-change", this.form);
+        },
         render() {
             return fetch(makeApiUrl("/render"));
         },
