@@ -59,7 +59,7 @@ def get_cache():
     return Cache(Cache.MEMORY)
 
 
-def is_market_open(t: Optional[datetime] = None) -> bool:
+def is_market_open(t: Optional[datetime] = None, blur: int = 0) -> bool:
     tz = timezone("EST")
     now = datetime.now(tz) if t is None else tz.normalize(t.astimezone(tz))
 
@@ -68,6 +68,10 @@ def is_market_open(t: Optional[datetime] = None) -> bool:
 
     opening_bell = now.replace(hour=9, minute=30, second=0, microsecond=0)
     closing_bell = now.replace(hour=16, minute=0, second=0, microsecond=0)
+
+    if blur:
+        opening_bell -= timedelta(minutes=blur)
+        closing_bell += timedelta(minutes=blur)
 
     log.debug(f"market: now={now} opening={opening_bell} closing={closing_bell}")
 
@@ -583,7 +587,7 @@ class ManageCandles(MessageHandler):
         portfolio: Portfolio,
         stocks: List[Stock],
     ) -> None:
-        if not is_market_open():
+        if not is_market_open(blur=30):
             return
 
         def can_refresh(stock: Stock) -> bool:
