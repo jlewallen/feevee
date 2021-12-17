@@ -460,7 +460,7 @@ async def add_symbols():
     parsed: Dict[str, List[str]] = json.loads(raw)
 
     if parsed["adding"]:
-        symbols = parsed["symbols"]
+        symbols = [s.upper() for s in parsed["symbols"]]
         await repository.add_symbols(user, symbols)
         for symbol in symbols:
             await refreshing.push(CheckSymbolMessage(user, symbol))

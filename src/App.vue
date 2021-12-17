@@ -124,7 +124,7 @@ export default {
                     return !this.tag || _.indexOf(s.tags, this.tag) >= 0;
                 })
                 .filter((s) => {
-                    return this.form.filter.length == 0 || s.symbol.indexOf(this.form.filter) >= 0;
+                    return this.form.filter.length == 0 || s.symbol.indexOf(this.form.filter.toUpperCase()) >= 0;
                 })
                 .value();
         },
