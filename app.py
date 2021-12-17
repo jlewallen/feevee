@@ -136,16 +136,18 @@ async def assemble_stock_view_model(stock: Stock):
 
     position = make_position()
 
-    virtual_tags = [] if stock.notes.tags else ["v:untagged"]
-    virtual_tags.append("v:hold" if position else "v:watch")
-
     def is_nearby(target: Decimal, value: Decimal) -> bool:
         s = value * Decimal(0.9)
         e = value * Decimal(1.1)
         return target >= s and target <= e
 
+    virtual_tags = [] if stock.notes.tags else ["v:untagged"]
+
+    if position:
+        virtual_tags.append("v:hold")
+
     if price_change:
-        virtual_tags.append("v:down" if price_change < 0 else "v:up")
+        virtual_tags.append("v:d" if price_change < 0 else "v:u")
 
     if last_price:
         if basis_price:
