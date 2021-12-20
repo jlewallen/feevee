@@ -5,3 +5,4 @@ dist
 .env
 .htpasswd
 run-prod-live
+run-cli
