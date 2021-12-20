@@ -136,9 +136,11 @@ async def assemble_stock_view_model(stock: Stock):
 
     position = make_position()
 
-    def is_nearby(target: Decimal, value: Decimal) -> bool:
-        s = value * Decimal(0.9)
-        e = value * Decimal(1.1)
+    def is_nearby(
+        target: Decimal, value: Decimal, epsilon: Decimal = Decimal(0.1)
+    ) -> bool:
+        s = value * Decimal(1.0) - epsilon
+        e = value * Decimal(1.0) + epsilon
         return target >= s and target <= e
 
     virtual_tags = [] if stock.notes.tags else ["v:untagged"]
@@ -154,17 +156,19 @@ async def assemble_stock_view_model(stock: Stock):
             if last_price > basis_price:
                 virtual_tags.append("v:basis:above")
                 if "exiting" in stock.notes.tags:
-                    virtual_tags.append("v:sell")
+                    virtual_tags.append("V:sell")
             else:
                 virtual_tags.append("v:basis:below")
                 if "entering" in stock.notes.tags:
-                    virtual_tags.append("v:buy")
+                    virtual_tags.append("V:buy")
 
-        if symbol_prices.one_year_range:
-            if is_nearby(symbol_prices.one_year_range[0], last_price):
+        if year := symbol_prices.one_year_range:
+            epsilon = Decimal(0.1)
+            near_low = is_nearby(year[0], last_price, epsilon)
+            near_high = is_nearby(year[1], last_price, epsilon)
+            if near_low and not near_high:
                 virtual_tags.append("v:year:low")
-
-            if is_nearby(symbol_prices.one_year_range[1], last_price):
+            if near_high and not near_low:
                 virtual_tags.append("v:year:high")
 
         for np in stock.notes.prices:
@@ -316,15 +320,16 @@ async def render_ohlc(
 class ChartTemplate:
     w: int
     h: int
+    theme: str
 
 
 @dataclass
 class WebChartsCacheWarmer(RefreshChartsHandler):
     templates: List[ChartTemplate] = field(default_factory=list)
-    capacity: int = 6
+    capacity: int = 4
 
-    async def include_template(self, w: int, h: int):
-        template = ChartTemplate(w, h)
+    async def include_template(self, w: int, h: int, theme: str):
+        template = ChartTemplate(w, h, theme)
         if template in self.templates:
             return
 
@@ -339,11 +344,10 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
         log.info(f"{m.symbol:6} web-charts:begin")
         stock = await repository.get_stock(m.user, m.symbol)
         for template in self.templates:
-            for theme in Themes:
-                for duration in ["3M", "12M"]:
-                    await render_ohlc(
-                        stock, duration, template.w, template.h, theme, []
-                    )
+            for duration in ["3M", "12M"]:
+                await render_ohlc(
+                    stock, duration, template.w, template.h, template.theme, []
+                )
 
 
 class JSONEncoder(quart_json.JSONEncoder):
@@ -494,13 +498,13 @@ def parse_options() -> List[str]:
     return []
 
 
-@app.route("/symbols/<symbol>/ohlc/<duration>/<int:w>/<int:h>/<style>")
-async def get_chart(symbol: str, duration: str, w: int, h: int, style: str):
+@app.route("/symbols/<symbol>/ohlc/<duration>/<int:w>/<int:h>/<theme>")
+async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
     user = await get_user()
-    await web_charts.include_template(w, h)
+    await web_charts.include_template(w, h, theme)
     stock = await repository.get_stock(user, symbol)
     options = parse_options()
-    return await render_ohlc(stock, duration, w, h, style, options)
+    return await render_ohlc(stock, duration, w, h, theme, options)
 
 
 @app.route("/symbols/<symbol>/notes", methods=["POST"])
