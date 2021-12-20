@@ -458,14 +458,13 @@ async def add_symbols():
     user = await get_user()
     raw = await request.get_data()
     parsed: Dict[str, List[str]] = json.loads(raw)
+    symbols = [s.upper() for s in parsed["symbols"]]
 
     if parsed["adding"]:
-        symbols = [s.upper() for s in parsed["symbols"]]
-        await repository.add_symbols(user, symbols)
-        for symbol in symbols:
+        for symbol in await repository.add_symbols(user, symbols):
             await refreshing.push(CheckSymbolMessage(user, symbol))
     else:
-        raise NotImplementedError
+        await repository.remove_symbols(user, symbols)
 
     return dict()
 

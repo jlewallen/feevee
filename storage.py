@@ -151,20 +151,45 @@ class SymbolStorage:
 
     async def add_symbols(self, user_key: UserKey, symbols: List[str]):
         assert self.db
+
+        changed: List[str] = []
         for symbol in symbols:
             # TODO Make data nullable in the future.
             await self.db.execute(
                 "INSERT INTO symbols (symbol, modified, candles, earnings, candles, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
                 [symbol, datetime.utcnow(), True, False, False, False, "{}"],
             )
+
+            changes_before = self.db.total_changes
             await self.db.execute(
                 "INSERT INTO user_symbol (user_id, symbol) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 [user_key.uid, symbol],
             )
+            if changes_before != self.db.total_changes:
+                log.info(f"{symbol:6} added")
+                changed.append(symbol)
 
         await self._user_modified(user_key)
 
         await self.db.commit()
+
+        return changed
+
+    async def remove_symbols(self, user_key: UserKey, symbols: List[str]):
+        assert self.db
+
+        for symbol in symbols:
+            await self.db.execute(
+                "DELETE FROM user_symbol WHERE user_id = ? AND symbol = ?",
+                [user_key.uid, symbol],
+            )
+            log.info(f"{symbol:6} removed")
+
+        await self._user_modified(user_key)
+
+        await self.db.commit()
+
+        return []
 
     async def set_symbol(self, symbol: str, safe: bool, data: Dict[str, Any]):
         assert self.db

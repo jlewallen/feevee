@@ -180,7 +180,8 @@ async def load_portfolio(user: UserKey) -> Portfolio:
     all_symbols = [row.symbol for row in user_symbols.values()]
 
     if "FEEVEE_SYMBOLS" in os.environ:
-        all_symbols = os.environ["FEEVEE_SYMBOLS"].split(" ")
+        filtered = os.environ["FEEVEE_SYMBOLS"].split(" ")
+        all_symbols = [s for s in all_symbols if s in filtered]
 
     return Portfolio(user, all_symbols, lots, meta)
 
@@ -901,7 +902,11 @@ class SymbolRepository:
 
     async def add_symbols(str, user: UserKey, symbols: List[str]):
         db = await get_db()
-        await db.add_symbols(user, symbols)
+        return await db.add_symbols(user, symbols)
+
+    async def remove_symbols(str, user: UserKey, symbols: List[str]):
+        db = await get_db()
+        return await db.remove_symbols(user, symbols)
 
 
 def rounding(v: Decimal) -> Decimal:
