@@ -56,8 +56,10 @@ async def main():
 
         await get_earnings_calendar()
 
-        today = datetime.today()
-        today_str = today.strftime("%Y%m%d")
+        today = datetime.now().replace(minute=0, second=0)
+        today_str = (
+            today.strftime("%Y%m%d") if False else today.strftime("%Y%m%d_%H%M%S")
+        )
 
         for stock in stocks:
             if stock.info and stock.info.options:
