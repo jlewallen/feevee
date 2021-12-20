@@ -21,6 +21,9 @@ class Lot:
 class Lots:
     lots: List[Lot] = field(default_factory=list)
 
+    def for_symbol(self, symbol: str) -> "Lots":
+        return Lots([l for l in self.lots if l.symbol == symbol])
+
     def get_last_buy_price(self, symbol: str) -> Optional[Decimal]:
         symbol_lots = [l for l in self.lots if l.symbol == symbol]
         if len(symbol_lots) == 0:

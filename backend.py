@@ -294,7 +294,7 @@ async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
         info,
         version,
         symbol_prices,
-        portfolio.lots,
+        portfolio.lots.for_symbol(symbol),
         notes,
         meta,
     )
