@@ -23,13 +23,19 @@ DailyVolumeColumns = ["5. volume", "6. volume"]
 
 
 @dataclass
+class LineStyle:
+    color: str
+    width: float = 1
+
+
+@dataclass
 class Colors:
     bg: str
     text: str
     grid: str
     volume: str
-    indicator: str
-    signals: Dict[str, str]
+    indicator: LineStyle
+    signals: Dict[str, LineStyle]
 
 
 Light = Colors(
@@ -37,10 +43,10 @@ Light = Colors(
     text="#000000",
     grid="#e6e6e6",
     volume="#000000",
-    indicator="#9b59b6",
+    indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": "#008080",
-        "S:MACD-Signal": "#cd5c5c",
+        "S:MACD": LineStyle("#008080"),
+        "S:MACD-Signal": LineStyle("#cd5c5c", 2),
     },
 )
 
@@ -49,10 +55,10 @@ Dark = Colors(
     text="#ffffff",
     grid="#2e2e2e",
     volume="#999999",
-    indicator="#9b59b6",
+    indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": "#008080",
-        "S:MACD-Signal": "#cd5c5c",
+        "S:MACD": LineStyle("#008080"),
+        "S:MACD-Signal": LineStyle("#cd5c5c", 2),
     },
 )
 
@@ -61,10 +67,10 @@ Paper = Colors(
     text="#000000",
     grid="#e6e6e6",
     volume="#000000",
-    indicator="#9b59b6",
+    indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": "#008080",
-        "S:MACD-Signal": "#cd5c5c",
+        "S:MACD": LineStyle("#008080"),
+        "S:MACD-Signal": LineStyle("#cd5c5c", 2),
     },
 )
 
@@ -319,10 +325,11 @@ def _render_ohlc(
 
     for series in prices.daily:
         if series.startswith("S:"):
+            style = colors.signals[series]
             signal_trace = go.Scatter(
                 x=prices.daily.index,
                 y=prices.daily[series],
-                line=go.scatter.Line(width=2.0, color=colors.signals[series]),
+                line=go.scatter.Line(width=style.width, color=style.color),
                 name=title,
                 visible=True,
                 showlegend=False,
@@ -335,10 +342,11 @@ def _render_ohlc(
             include_volume = False
 
         if series.startswith("I:"):
+            style = colors.indicator
             indicator_trace = go.Scatter(
                 x=prices.daily.index,
                 y=prices.daily[series],
-                line=go.scatter.Line(width=1.0, color=colors.indicator),
+                line=go.scatter.Line(width=style.width, color=style.color),
                 name=title,
                 visible=True,
                 showlegend=False,
