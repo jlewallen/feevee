@@ -63,7 +63,7 @@ export default {
                 return 8;
             }
             if (this.width > 1200) {
-                return 4;
+                return 3;
             }
             if (this.width > 500) {
                 return 2;
