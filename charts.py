@@ -1,4 +1,4 @@
-from typing import Optional, List, Sequence, Tuple, TextIO, Union
+from typing import Optional, List, Sequence, Tuple, TextIO, Union, Dict
 from decimal import Decimal
 from dataclasses import dataclass
 from pandas import DataFrame, Series, read_csv
@@ -29,6 +29,7 @@ class Colors:
     grid: str
     volume: str
     indicator: str
+    signals: Dict[str, str]
 
 
 Light = Colors(
@@ -37,6 +38,10 @@ Light = Colors(
     grid="#e6e6e6",
     volume="#000000",
     indicator="#9b59b6",
+    signals={
+        "S:MACD": "#008080",
+        "S:MACD-Signal": "#cd5c5c",
+    },
 )
 
 Dark = Colors(
@@ -45,6 +50,10 @@ Dark = Colors(
     grid="#2e2e2e",
     volume="#999999",
     indicator="#9b59b6",
+    signals={
+        "S:MACD": "#008080",
+        "S:MACD-Signal": "#cd5c5c",
+    },
 )
 
 Paper = Colors(
@@ -53,6 +62,10 @@ Paper = Colors(
     grid="#e6e6e6",
     volume="#000000",
     indicator="#9b59b6",
+    signals={
+        "S:MACD": "#008080",
+        "S:MACD-Signal": "#cd5c5c",
+    },
 )
 
 
@@ -249,7 +262,6 @@ def _render_ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
-    indicators: List[Series] = [],
 ):
     show_last_value_marker = True
 
@@ -303,21 +315,25 @@ def _render_ohlc(
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    volume = go.Bar(
-        x=prices.daily.index,
-        y=prices.daily[prices.volume_column()],
-        visible=True,
-        showlegend=False,
-        name=title,
-        xaxis="x",
-        yaxis="y",
-        marker_color=colors.volume,
-        opacity=0.25,
-    )
-
-    fig.add_trace(volume)
+    include_volume = True
 
     for series in prices.daily:
+        if series.startswith("S:"):
+            signal_trace = go.Scatter(
+                x=prices.daily.index,
+                y=prices.daily[series],
+                line=go.scatter.Line(width=2.0, color=colors.signals[series]),
+                name=title,
+                visible=True,
+                showlegend=False,
+                xaxis="x",
+                yaxis="y",
+            )
+
+            fig.add_trace(signal_trace)
+
+            include_volume = False
+
         if series.startswith("I:"):
             indicator_trace = go.Scatter(
                 x=prices.daily.index,
@@ -331,6 +347,37 @@ def _render_ohlc(
             )
 
             fig.add_trace(indicator_trace, secondary_y=True)
+
+    if include_volume:
+        volume = go.Bar(
+            x=prices.daily.index,
+            y=prices.daily[prices.volume_column()],
+            visible=True,
+            showlegend=False,
+            name=title,
+            xaxis="x",
+            yaxis="y",
+            marker_color=colors.volume,
+            opacity=0.25,
+        )
+
+        fig.add_trace(volume)
+
+        secondary_y_axis = dict(
+            side="left",
+            range=[min_volume, max_volume * 3],
+            showticklabels=False,
+            showline=False,
+            zeroline=False,
+            showgrid=False,
+        )
+    else:
+        secondary_y_axis = dict(
+            side="left",
+            showticklabels=True,
+            gridcolor=colors.grid,
+            **axis_defaults,
+        )
 
     ohlc = go.Ohlc(
         x=prices.daily.index,
@@ -448,14 +495,7 @@ def _render_ohlc(
             gridcolor=colors.grid,
             **axis_defaults,
         ),
-        yaxis=dict(
-            side="left",
-            range=[min_volume, max_volume * 3],
-            showticklabels=False,
-            showline=False,
-            zeroline=False,
-            showgrid=False,
-        ),
+        yaxis=secondary_y_axis,
         xaxis2=dict(
             showticklabels=False,
             showline=False,
@@ -491,7 +531,6 @@ async def ohlc(
     marks: List[PriceMark],
     colors: Colors,
     trading_hours_only: bool = False,
-    indicators: Optional[Series] = None,
 ):
     global pool
     if pool is None:
@@ -508,7 +547,6 @@ async def ohlc(
         marks,
         colors,
         trading_hours_only,
-        indicators,
     )
 
 

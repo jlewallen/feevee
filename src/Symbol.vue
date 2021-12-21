@@ -84,6 +84,16 @@
                     <button
                         type="button"
                         class="btn btn-outline-primary"
+                        v-on:click="toggleOption('MACD')"
+                        v-bind:class="{
+                            active: isOptionEnabled('MACD'),
+                        }"
+                    >
+                        MACD
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline-primary"
                         v-on:click="toggleOption('50MA')"
                         v-bind:class="{
                             active: isOptionEnabled('50MA'),

@@ -259,7 +259,6 @@ async def _render_ohlc(
         marks=marks,
         colors=theme.colors,
         trading_hours_only=trading_hours_only,
-        **kwargs,
     )
     return Response(data, mimetype="image/png")
 
@@ -270,13 +269,29 @@ ma_pattern = re.compile("(\d+)MA")
 
 
 async def load_months_of_symbol_prices(symbol: str, months: int, options: List[str]):
-    prices = await load_symbol_prices(symbol)
+    original = await load_symbol_prices(symbol)
+
+    prices = original.clone()
+
     for option in options:
+        if option == "MACD":
+            exp1 = (
+                prices.daily[charts.DailyCloseColumn].ewm(span=12, adjust=False).mean()
+            )
+            exp2 = (
+                prices.daily[charts.DailyCloseColumn].ewm(span=26, adjust=False).mean()
+            )
+            prices.daily["S:MACD"] = exp1 - exp2
+            prices.daily["S:MACD-Signal"] = (
+                prices.daily["S:MACD"].ewm(span=9, adjust=False).mean()
+            )
+
         if m := ma_pattern.match(option):
             days = int(m.group(1))
             prices.daily[f"I:{days}MA"] = (
                 prices.daily[charts.DailyCloseColumn].rolling(window=f"{days}D").mean()
             )
+
     today = datetime.utcnow()
     start = today - relativedelta(months=months)
     return prices.history(start, today)
