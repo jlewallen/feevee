@@ -19,7 +19,7 @@ DailyOpenColumn = "1. open"
 DailyHighColumn = "2. high"
 DailyLowColumn = "3. low"
 DailyCloseColumn = "4. close"
-DailyVolumeColumns = ["5. volume", "6. volume"]
+DailyVolumeColumns = ["6. volume", "5. volume"]
 
 
 @dataclass
@@ -45,9 +45,9 @@ Light = Colors(
     volume="#000000",
     indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": LineStyle("#008080"),
+        "S:MACD": LineStyle("#4169e1"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
-        "S:ADI": LineStyle("#cd5c5c", 1.5),
+        "S:ADI": LineStyle("#4169e1", 1.0),
     },
 )
 
@@ -58,9 +58,9 @@ Dark = Colors(
     volume="#999999",
     indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": LineStyle("#008080"),
+        "S:MACD": LineStyle("#4169e1"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
-        "S:ADI": LineStyle("#cd5c5c", 1.5),
+        "S:ADI": LineStyle("#4169e1", 1.0),
     },
 )
 
@@ -71,9 +71,9 @@ Paper = Colors(
     volume="#000000",
     indicator=LineStyle("#9b59b6", 1.5),
     signals={
-        "S:MACD": LineStyle("#008080"),
+        "S:MACD": LineStyle("#4169e1"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
-        "S:ADI": LineStyle("#cd5c5c", 1.5),
+        "S:ADI": LineStyle("#4169e1", 1.0),
     },
 )
 
