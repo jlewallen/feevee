@@ -47,6 +47,7 @@ Light = Colors(
     signals={
         "S:MACD": LineStyle("#008080"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
+        "S:ADI": LineStyle("#cd5c5c", 1.5),
     },
 )
 
@@ -59,6 +60,7 @@ Dark = Colors(
     signals={
         "S:MACD": LineStyle("#008080"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
+        "S:ADI": LineStyle("#cd5c5c", 1.5),
     },
 )
 
@@ -71,6 +73,7 @@ Paper = Colors(
     signals={
         "S:MACD": LineStyle("#008080"),
         "S:MACD-Signal": LineStyle("#cd5c5c", 2),
+        "S:ADI": LineStyle("#cd5c5c", 1.5),
     },
 )
 
@@ -155,6 +158,26 @@ class Prices:
 
     def clone(self) -> "Prices":
         return Prices(self.symbol, self.daily.copy())
+
+    @property
+    def high(self) -> pd.Series:
+        return self.daily[DailyHighColumn]
+
+    @property
+    def low(self) -> pd.Series:
+        return self.daily[DailyLowColumn]
+
+    @property
+    def opening(self) -> pd.Series:
+        return self.daily[DailyOpenColumn]
+
+    @property
+    def closing(self) -> pd.Series:
+        return self.daily[DailyCloseColumn]
+
+    @property
+    def volume(self) -> pd.Series:
+        return self.daily[self.volume_column()]
 
 
 def get_relative_candles_csv_path(symbol: str) -> str:

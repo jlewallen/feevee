@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from aiocache import cached
 from dataclasses import dataclass, field
+from ta.volume import AccDistIndexIndicator
 import logging, json, re, asyncio, itertools
 
 from backend import (
@@ -285,6 +286,19 @@ async def load_months_of_symbol_prices(symbol: str, months: int, options: List[s
             prices.daily["S:MACD-Signal"] = (
                 prices.daily["S:MACD"].ewm(span=9, adjust=False).mean()
             )
+
+        if option == "ADI":
+            high = prices.high.astype(float)
+            low = prices.low.astype(float)
+            close = prices.closing.astype(float)
+            volume = prices.volume.astype(float)
+            indicator = AccDistIndexIndicator(
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+            )
+            prices.daily["S:ADI"] = indicator.acc_dist_index()
 
         if m := ma_pattern.match(option):
             days = int(m.group(1))
