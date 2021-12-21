@@ -134,6 +134,10 @@ class Stock:
     def is_slow(self) -> bool:
         return self.tagged("slow")
 
+    @property
+    def has_tags(self) -> bool:
+        return len(self.notes.tags) > 0
+
     def key(self) -> List[str]:
         return [self.symbol, self.version]
 
@@ -592,7 +596,7 @@ class ManageCandles(MessageHandler):
             return
 
         def can_refresh(stock: Stock) -> bool:
-            if stock.is_slow:
+            if stock.is_slow or not stock.has_tags:
                 return False
             return self.touched.can_touch(stock.symbol, timedelta(minutes=10))
 
