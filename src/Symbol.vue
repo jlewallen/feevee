@@ -114,6 +114,16 @@
                     <button
                         type="button"
                         class="btn btn-outline-primary"
+                        v-on:click="toggleOption('100MA')"
+                        v-bind:class="{
+                            active: isOptionEnabled('100MA'),
+                        }"
+                    >
+                        100MA
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline-primary"
                         v-on:click="toggleOption('200MA')"
                         v-bind:class="{
                             active: isOptionEnabled('200MA'),
