@@ -190,7 +190,7 @@ async def assemble_stock_view_model(stock: Stock):
         change=price_change,
         price=last_price,
         previous_close=previous_close,
-        tags=stock.notes.tags + virtual_tags,
+        tags=sorted(stock.notes.tags + virtual_tags),
         lots=[lot_to_json(lot) for lot in symbol_lots],
         percent_change=maybe_round(percent_change),
         negative=percent_change < 0 if percent_change else False,
