@@ -1,6 +1,6 @@
 <template>
     <div>
-        <Header>
+        <Header @nav-home="onHome">
             <template v-slot:application-links>
                 <div><a href="#" v-on:click="toggleStyle">theme</a></div>
                 <div><a href="#" v-on:click="render">render</a></div>
@@ -21,7 +21,7 @@
                 <div>{{ visible.length }} symbols</div>
                 <div>${{ portfolioValue.toFixed(2) }}</div>
                 <form class="form-inline">
-                    <input type="text" v-model="form.filter" />
+                    <input type="text" :value="form.filter" @change="(ev) => onFilterChange(ev.target.value)" />
                 </form>
             </template>
         </Header>
@@ -180,8 +180,12 @@ export default {
         });
     },
     methods: {
-        onFilterChange() {
-            console.log("filter-change", this.form);
+        onFilterChange(value) {
+            console.log("filter-change", value);
+            this.form.filter = value;
+        },
+        onHome() {
+            this.form.filter = "";
         },
         render() {
             return fetch(makeApiUrl("/render"));

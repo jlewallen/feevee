@@ -1,6 +1,6 @@
 <template>
     <div class="top">
-        <div><router-link to="/">home</router-link></div>
+        <div><a href="#" v-on:click="onHome">home</a></div>
         <div><router-link to="/profile">profile</router-link></div>
         <div><router-link to="/options">options</router-link></div>
         <slot name="application-links"></slot>
@@ -14,10 +14,14 @@
 <script>
 export default {
     name: "Header",
-    data() {
-        return {};
+    methods: {
+        onHome() {
+            if (this.$route.path != "/") {
+                this.$router.replace("/");
+            }
+            this.$emit("nav-home");
+        },
     },
-    methods: {},
 };
 </script>
 
