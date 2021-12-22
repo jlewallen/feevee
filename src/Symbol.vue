@@ -4,7 +4,7 @@
             <div :class="'status ' + tagClasses"><div></div></div>
             <div class="header" v-bind:style="{ width: scaleChartW + 'px' }">
                 <div class="symbol">
-                    <a :href="fidelityUrl" target="_blank">{{ symbol }}</a>
+                    <a :href="stockChartsUrl" target="_blank">{{ symbol }}</a>
                 </div>
                 <span>
                     <a
@@ -251,11 +251,14 @@ export default {
         tagClasses() {
             return this.visible.tags.map((t) => t.replace(":", "-")).join(" ");
         },
-        seekingAlphaUrl() {
-            return `https://seekingalpha.com/symbol/${this.symbol}`;
+        stockChartsUrl() {
+            return `https://stockcharts.com/acp/?s=${this.symbol}`;
         },
         fidelityUrl() {
             return `https://digital.fidelity.com/prgw/digital/research/quote/dashboard?symbol=${this.symbol}`;
+        },
+        seekingAlphaUrl() {
+            return `https://seekingalpha.com/symbol/${this.symbol}`;
         },
         optionsChainUrl() {
             return `https://researchtools.fidelity.com/ftgw/mloptions/goto/optionChain?cusip=&symbol=${this.symbol}&Search=Search&symbols=${this.symbol}&showsymbols=N&sortBy=EXDATE_EXTYPE_OPTYPE_ADJ`;
