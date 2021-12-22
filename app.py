@@ -526,7 +526,7 @@ async def modify_lots():
     return dict()
 
 
-@app.route("/symbols/refresh")
+@app.route("/symbols/refresh", methods=["POST", "GET"])
 async def refresh_symbols():
     user = await get_user()
     stock_info = StockInfo(user)
@@ -538,7 +538,7 @@ async def refresh_symbols():
     return dict()
 
 
-@app.route("/symbols/<symbol>/refresh")
+@app.route("/symbols/<symbol>/refresh", methods=["POST", "GET"])
 async def refresh_symbol(symbol: str):
     user = await get_user()
     await _basic_refresh(user, symbol)
@@ -571,7 +571,7 @@ async def notes(symbol: str):
     portfolio = await repository.get_portfolio(user, stock_info)
     raw = await request.get_data()
     parsed = json.loads(raw)
-    stock = await repository.get_stock(user, symbol, portfolio ,stock_info)
+    stock = await repository.get_stock(user, symbol, portfolio, stock_info)
     if parsed["body"]:
         log.info(f"{symbol:6} notes:saving {stock.key()}")
         stock = await repository.save_notes(

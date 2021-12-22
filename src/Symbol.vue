@@ -135,6 +135,9 @@
                 <span class="options-chain">
                     <a :href="optionsChainUrl" target="_blank">chain</a>
                 </span>
+                <span class="options-chain" v-if="expanded">
+                    <a href="#" v-on:click.prevent="onRefresh">refresh</a>
+                </span>
                 <span class="tag" v-for="tag in visible.tags" v-bind:key="tag">
                     <router-link :to="'/tags/' + tag">#{{ tag }}</router-link>
                 </span>
@@ -323,6 +326,11 @@ export default {
         async changeDuration(duration) {
             this.duration = duration;
             console.log("change-duration:", duration);
+        },
+        async onRefresh() {
+            await fetch(makeApiUrl(`/symbols/${this.symbol}/refresh?candles=1&daily=1&force=1`), {
+                method: "POST",
+            });
         },
         isOptionEnabled(name) {
             return _.indexOf(this.options, name) >= 0;
