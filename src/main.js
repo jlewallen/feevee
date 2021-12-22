@@ -1,6 +1,6 @@
 import Vue from "vue";
 import Layout from "./Layout.vue";
-import App from "./App.vue";
+import Home from "./Home.vue";
 import ProfileEditor from "./ProfileEditor.vue";
 import OptionAnalysis from "./OptionAnalysis.vue";
 import VueRouter from "vue-router";
@@ -17,10 +17,10 @@ Vue.use(VueLazyload, {
 });
 
 const routes = [
-    { path: "/", component: App },
     { path: "/profile", component: ProfileEditor },
     { path: "/options", component: OptionAnalysis },
-    { path: "/tags/:tags", component: App },
+    { path: "/tags/:tags", component: Home },
+    { path: "/", component: Home },
 ];
 
 const router = new VueRouter({
