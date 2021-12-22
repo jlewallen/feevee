@@ -9,7 +9,7 @@ from time import mktime
 from dateutil.relativedelta import relativedelta
 from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
-from backend import MoneyCache, SymbolRepository, is_missing, write_json_file
+from backend import MoneyCache, StockInfo, SymbolRepository, is_missing, write_json_file
 from storage import UserKey, get_db
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
@@ -120,11 +120,13 @@ async def main():
         user = await db.get_user_key_by_user_id(1)
         assert user
 
+        stock_info = StockInfo(user)
+
         log.info(f"querying portfolio")
-        portfolio = await repository.get_portfolio(user)
+        portfolio = await repository.get_portfolio(user, stock_info)
 
         log.info(f"querying stocks")
-        stocks = await repository.get_all_stocks(user, portfolio=portfolio)
+        stocks = await repository.get_all_stocks(user, portfolio, stock_info)
 
         await get_earnings_calendar()
 

@@ -14,6 +14,7 @@ from backend import (
     CheckSymbolMessage,
     Financials,
     Portfolio,
+    StockInfo,
     chunked,
     ManageCandles,
     ManageDailies,
@@ -372,7 +373,9 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
 
     async def handle(self, messages: MessagePublisher, m: SymbolMessage):
         log.info(f"{m.symbol:6} web-charts:begin")
-        stock = await repository.get_stock(m.user, m.symbol)
+        stock_info = StockInfo(m.user)
+        portfolio = await repository.get_portfolio(m.user, stock_info)
+        stock = await repository.get_stock(m.user, m.symbol, portfolio, stock_info)
         for template in self.templates:
             for duration in ["3M", "12M"]:
                 await render_ohlc(
@@ -437,8 +440,8 @@ async def get_user() -> UserKey:
 
 
 @cached(key_builder=get_user_symbols_key, **Caching)
-async def get_user_symbols(portfolio: Portfolio):
-    stocks = await repository.get_all_stocks(portfolio.user, portfolio=portfolio)
+async def get_user_symbols(portfolio: Portfolio, stock_info: StockInfo):
+    stocks = await repository.get_all_stocks(portfolio.user, portfolio, stock_info)
     return await chunked(
         "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
     )
@@ -447,8 +450,9 @@ async def get_user_symbols(portfolio: Portfolio):
 @app.route("/status")
 async def status():
     user = await get_user()
-    portfolio = await repository.get_portfolio(user)
-    symbols = await get_user_symbols(portfolio)
+    stock_info = StockInfo(user)
+    portfolio = await repository.get_portfolio(user, stock_info)
+    symbols = await get_user_symbols(portfolio, stock_info)
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 
 
@@ -469,7 +473,9 @@ async def render():
     user = await get_user()
     assert user.uid == AdministratorUserId
 
-    stocks = await repository.get_all_stocks(user)
+    stock_info = StockInfo(user)
+    portfolio = await repository.get_portfolio(user, stock_info)
+    stocks = await repository.get_all_stocks(user, portfolio, stock_info)
     for stock in stocks:
         await refreshing.push(RefreshChartsMessage(user, stock.symbol))
 
@@ -523,7 +529,9 @@ async def modify_lots():
 @app.route("/symbols/refresh")
 async def refresh_symbols():
     user = await get_user()
-    stocks = await repository.get_all_stocks(user)
+    stock_info = StockInfo(user)
+    portfolio = await repository.get_portfolio(user, stock_info)
+    stocks = await repository.get_all_stocks(user, portfolio, stock_info)
     for stock in stocks:
         await _basic_refresh(user, stock.symbol)
 
@@ -548,8 +556,10 @@ def parse_options() -> List[str]:
 @app.route("/symbols/<symbol>/ohlc/<duration>/<int:w>/<int:h>/<theme>")
 async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
     user = await get_user()
+    stock_info = StockInfo(user)
+    portfolio = await repository.get_portfolio(user, stock_info)
     await web_charts.include_template(w, h, theme)
-    stock = await repository.get_stock(user, symbol)
+    stock = await repository.get_stock(user, symbol, portfolio, stock_info)
     options = parse_options()
     return await render_ohlc(stock, duration, w, h, theme, options)
 
@@ -557,9 +567,11 @@ async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
 @app.route("/symbols/<symbol>/notes", methods=["POST"])
 async def notes(symbol: str):
     user = await get_user()
+    stock_info = StockInfo(user)
+    portfolio = await repository.get_portfolio(user, stock_info)
     raw = await request.get_data()
     parsed = json.loads(raw)
-    stock = await repository.get_stock(user, symbol)
+    stock = await repository.get_stock(user, symbol, portfolio ,stock_info)
     if parsed["body"]:
         log.info(f"{symbol:6} notes:saving {stock.key()}")
         stock = await repository.save_notes(

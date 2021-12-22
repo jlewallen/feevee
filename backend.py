@@ -159,14 +159,56 @@ async def load_meta() -> Dict[str, Dict[str, Any]]:
     return meta
 
 
-def _load_portfolio_key(fn, user: UserKey) -> str:
-    return finish_key(["load-profile", str(user)])
+@dataclass
+class StockInfo:
+    user: UserKey
+    all_symbols: Optional[Dict[str, SymbolRow]] = None
+    all_notes: Optional[Dict[str, List[NoteRow]]] = None
+
+    async def load_all_symbols(self) -> Dict[str, SymbolRow]:
+        if self.all_symbols is None:
+            db = await get_db()
+            self.all_symbols = await db.get_all_symbols(self.user)
+        return self.all_symbols
+
+    async def load_all_notes(self) -> Dict[str, List[NoteRow]]:
+        if self.all_notes is None:
+            db = await get_db()
+            self.all_notes = await db.get_all_notes(self.user)
+        return self.all_notes
+
+    async def load_symbol_info(self, symbol: str) -> Optional[SymbolRow]:
+        all_symbols = await self.load_all_symbols()
+        if symbol in all_symbols:
+            return all_symbols[symbol]
+        return None
+
+    async def _parse_symbol_notes(self, rows: List[NoteRow]) -> Notes:
+        if len(rows) == 0:
+            return Notes()
+        tags_pattern = re.compile("#\s*(\S+)")
+        tags_match = tags_pattern.findall(rows[0].body)
+        prices_pattern = re.compile("@\s*(\S+)")
+        prices_match = prices_pattern.findall(rows[0].body)
+        prices = [Decimal(m) for m in prices_match]
+        notes = [row.body for row in rows]
+        return Notes(rows, notes, tags_match, prices)
+
+    async def load_symbol_notes(self, symbol: str) -> Notes:
+        all_notes = await self.load_all_notes()
+        if symbol in all_notes:
+            return await self._parse_symbol_notes(all_notes[symbol])
+        return Notes()
+
+
+def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
+    return finish_key(["load-portfolio", str(user)])
 
 
 @cached(key_builder=_load_portfolio_key, **Caching)
-async def load_portfolio(user: UserKey) -> Portfolio:
+async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
     meta = await load_meta()
-    user_symbols = await load_all_symbols(user)
+    user_symbols = await stock_info.load_all_symbols()
     all_symbols = [row.symbol for row in user_symbols.values()]
     db = await get_db()
     lots_raw = await db.get_lots(user)
@@ -179,53 +221,7 @@ async def load_portfolio(user: UserKey) -> Portfolio:
     return Portfolio(user, all_symbols, lots, meta)
 
 
-def _load_all_symbols_key(fn, user: UserKey):
-    return finish_key([fn.__name__, str(user)])
-
-
-@cached(key_builder=_load_all_symbols_key, **Caching)
-async def load_all_symbols(user: UserKey):
-    db = await get_db()
-    return await db.get_all_symbols(user)
-
-
-def _load_all_notes_key(fn, user: UserKey):
-    return finish_key([fn.__name__, str(user)])
-
-
-@cached(key_builder=_load_all_notes_key, **Caching)
-async def load_all_notes(user: UserKey):
-    db = await get_db()
-    return await db.get_all_notes(user)
-
-
-async def load_symbol_info(user: UserKey, symbol: str):
-    all_symbols = await load_all_symbols(user)
-    if symbol in all_symbols:
-        return all_symbols[symbol]
-    return None
-
-
-async def _parse_symbol_notes(rows: List[NoteRow]) -> Notes:
-    if len(rows) == 0:
-        return Notes()
-    tags_pattern = re.compile("#\s*(\S+)")
-    tags_match = tags_pattern.findall(rows[0].body)
-    prices_pattern = re.compile("@\s*(\S+)")
-    prices_match = prices_pattern.findall(rows[0].body)
-    prices = [Decimal(m) for m in prices_match]
-    notes = [row.body for row in rows]
-    return Notes(rows, notes, tags_match, prices)
-
-
-async def load_symbol_notes(user: UserKey, symbol: str) -> Notes:
-    all_notes = await load_all_notes(user)
-    if symbol in all_notes:
-        return await _parse_symbol_notes(all_notes[symbol])
-    return Notes()
-
-
-def get_user_symbols_key(fn, portfolio: Portfolio) -> str:
+def get_user_symbols_key(fn, portfolio: Portfolio, stock_info: StockInfo) -> str:
     price_key = finish_key(
         [portfolio.get_symbol_key(symbol) or "" for symbol in portfolio.symbols]
     )
@@ -245,7 +241,9 @@ def get_user_symbols_key(fn, portfolio: Portfolio) -> str:
     )
 
 
-def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
+def _load_stock_key(
+    fn, portfolio: Portfolio, symbol: str, stock_info: StockInfo
+) -> str:
     return finish_key(
         [
             fn.__name__,
@@ -258,10 +256,9 @@ def _load_stock_key(fn, portfolio: Portfolio, symbol: str) -> str:
 
 
 @cached(key_builder=_load_stock_key, **Caching)
-async def load_stock(portfolio: Portfolio, symbol: str) -> Stock:
-    log.debug(f"{symbol:6} key={_load_stock_key(load_stock, portfolio, symbol)}")
-    info = await load_symbol_info(portfolio.user, symbol)
-    notes = await load_symbol_notes(portfolio.user, symbol)
+async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -> Stock:
+    info = await stock_info.load_symbol_info(symbol)
+    notes = await stock_info.load_symbol_notes(symbol)
     symbol_prices = await pricing.get_prices(symbol)
     notes_time = notes.time()
     hashing = finish_key(
@@ -771,9 +768,9 @@ class RefreshQueue(MessagePublisher):
 
         user = await db.get_user_key_by_user_id(user_id)
 
-        portfolio = await load_portfolio(user)
-
-        stocks = await self.repository.get_all_stocks(user)
+        stock_info = StockInfo(user)
+        portfolio = await load_portfolio(user, stock_info)
+        stocks = await self.repository.get_all_stocks(user, portfolio, stock_info)
 
         return await asyncio.gather(
             self.candles.handler.service(self, portfolio, stocks),
@@ -791,7 +788,8 @@ class RefreshQueue(MessagePublisher):
     async def _user_closing(self, user_id: UserId):
         db = await get_db()
         user = await db.get_user_key_by_user_id(user_id)
-        portfolio = await load_portfolio(user)
+        stock_info = StockInfo(user)
+        portfolio = await load_portfolio(user, stock_info)
         for symbol in portfolio.symbols:
             await self.push(RefreshDailyMessage(user, symbol, maximum_age=0))
 
@@ -861,28 +859,34 @@ class RefreshQueue(MessagePublisher):
 
 @dataclass
 class SymbolRepository:
-    async def get_portfolio(self, user: UserKey) -> Portfolio:
-        return await load_portfolio(user)
+    async def get_portfolio(self, user: UserKey, stock_info: StockInfo) -> Portfolio:
+        return await load_portfolio(user, stock_info)
 
     async def get_all_stocks(
-        self, user: UserKey, portfolio: Optional[Portfolio] = None
+        self,
+        user: UserKey,
+        portfolio: Portfolio,
+        stock_info: StockInfo,
     ) -> List[Stock]:
-        portfolio = portfolio if portfolio else await self.get_portfolio(user)
         return await chunked(
             "batch-db",
             portfolio.symbols,
-            lambda symbol: self.get_stock(user, symbol, portfolio),
+            lambda symbol: self.get_stock(user, symbol, portfolio, stock_info),
         )
 
     async def get_stock(
-        self, user: UserKey, symbol: str, portfolio: Optional[Portfolio] = None
+        self,
+        user: UserKey,
+        symbol: str,
+        portfolio: Portfolio,
+        stock_info: StockInfo,
     ) -> Stock:
-        portfolio = portfolio if portfolio else await self.get_portfolio(user)
-        return await load_stock(portfolio, symbol)
+        return await load_stock(portfolio, symbol, stock_info)
 
     async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
+        stock_info = StockInfo(user)
         db = await get_db()
-        portfolio = await self.get_portfolio(user)
+        portfolio = await self.get_portfolio(user, stock_info)
         notes = await db.get_notes(user, symbol)
         if len(notes) == 0 or notes[0].body != body:
             user = await db.add_notes(
@@ -891,7 +895,7 @@ class SymbolRepository:
 
             # HACK This isn't updating the user in Portfolio
             portfolio.user = user
-        return await self.get_stock(user, symbol, portfolio)
+        return await self.get_stock(user, symbol, portfolio, stock_info)
 
     async def add_symbols(self, user: UserKey, symbols: List[str]) -> List[str]:
         db = await get_db()

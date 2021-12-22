@@ -23,7 +23,7 @@ class UserKey:
         return ""
 
     def __str__(self):
-        return f"UserKey<{self.uid}, {self.modified}, {len(self.symbols.keys()), {self.symbol_key}}>"
+        return f"UserKey<{self.uid}, {self.modified}, {self.symbol_key}>"
 
     def __repr__(self):
         return str(self)
