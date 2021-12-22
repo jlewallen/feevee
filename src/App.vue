@@ -1,24 +1,29 @@
 <template>
-    <div id="app" :class="theme">
+    <div>
         <Header>
-            <div><a href="#" v-on:click="toggleStyle">theme</a></div>
-            <div><a href="#" v-on:click="render">render</a></div>
-            <div><a href="#" v-on:click="clear">clear cache</a></div>
-            <div class="sort-options">
-                sort:
-                <a :class="{ selected: sort == sortPriority }" href="#" v-on:click="changeSort(sortPriority)">priority</a>
-                <a :class="{ selected: sort == sortSymbol }" href="#" v-on:click="changeSort(sortSymbol)">symbol</a>
-                <a :class="{ selected: sort == sortFreshness }" href="#" v-on:click="changeSort(sortFreshness)">freshness</a>
-                <a :class="{ selected: sort == sortPercentChange }" href="#" v-on:click="changeSort(sortPercentChange)">% change</a>
-                <a :class="{ selected: sort == sortAbsolutePercentChange }" href="#" v-on:click="changeSort(sortAbsolutePercentChange)">
-                    % ch abs
-                </a>
-            </div>
-            <div>{{ visible.length }} symbols</div>
-            <div>${{ portfolioValue.toFixed(2) }}</div>
-            <form class="form-inline">
-                <input type="text" v-model="form.filter" />
-            </form>
+            <template v-slot:application-links>
+                <div><a href="#" v-on:click="toggleStyle">theme</a></div>
+                <div><a href="#" v-on:click="render">render</a></div>
+                <div><a href="#" v-on:click="clear">clear cache</a></div>
+            </template>
+
+            <template v-slot:default>
+                <div class="sort-options">
+                    sort:
+                    <a :class="{ selected: sort == sortPriority }" href="#" v-on:click="changeSort(sortPriority)">priority</a>
+                    <a :class="{ selected: sort == sortSymbol }" href="#" v-on:click="changeSort(sortSymbol)">symbol</a>
+                    <a :class="{ selected: sort == sortFreshness }" href="#" v-on:click="changeSort(sortFreshness)">freshness</a>
+                    <a :class="{ selected: sort == sortPercentChange }" href="#" v-on:click="changeSort(sortPercentChange)">% change</a>
+                    <a :class="{ selected: sort == sortAbsolutePercentChange }" href="#" v-on:click="changeSort(sortAbsolutePercentChange)">
+                        % ch abs
+                    </a>
+                </div>
+                <div>{{ visible.length }} symbols</div>
+                <div>${{ portfolioValue.toFixed(2) }}</div>
+                <form class="form-inline">
+                    <input type="text" v-model="form.filter" />
+                </form>
+            </template>
         </Header>
         <div class="tags">
             <span
@@ -59,8 +64,13 @@ export default {
         Symbols,
         Header,
     },
+    props: {
+        theme: {
+            type: String,
+            required: true,
+        },
+    },
     data() {
-        const theme = window.localStorage["feevee:theme"];
         const sort = window.localStorage["feevee:sort"];
         return {
             symbols: [],
@@ -70,7 +80,6 @@ export default {
             form: {
                 filter: "",
             },
-            theme: theme || "dark",
             sort: sort || SortPriority,
             sortSymbol: SortSymbol,
             sortPriority: SortPriority,
@@ -184,8 +193,7 @@ export default {
             const themes = ["dark", "light", "paper"];
             const i = _.indexOf(themes, this.theme);
             const n = (i + 1) % themes.length;
-            this.theme = themes[n];
-            window.localStorage["feevee:theme"] = this.theme;
+            this.$emit("change-theme", themes[n]);
         },
         changeSort(sort) {
             this.sort = sort;
@@ -249,56 +257,6 @@ export default {
 </script>
 
 <style>
-#app {
-    font-family: Avenir, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-align: center;
-    color: #2c3e50;
-    min-height: 100vh;
-}
-
-#app.dark {
-    background-color: #111111;
-}
-
-#app.paper {
-    background-color: #fff1e5;
-}
-
-#app.light {
-    background-color: #ffffff;
-}
-
-.top {
-    display: flex;
-    padding: 10px;
-    flex-wrap: wrap;
-}
-/*
-.top .sort-options,
-.top .toggles {
-  display: flex;
-  flex-wrap: wrap;
-}
-*/
-
-.top div {
-    padding-right: 1em;
-}
-
-.top .sort-options a,
-.top .toggles a {
-    padding-right: 1em;
-    color: #666666;
-}
-
-.top .sort-options .selected,
-.top .toggles .selected {
-    font-weight: bold;
-    color: #8c5e80;
-}
-
 .tags {
     display: flex;
     flex-direction: row;

@@ -3,10 +3,10 @@
         <div><router-link to="/">home</router-link></div>
         <div><router-link to="/profile">profile</router-link></div>
         <div><router-link to="/options">options</router-link></div>
-        <div>
-            links:
-            <a href="https://money.cnn.com/data/fear-and-greed/" target="blank">f&g index</a>
-        </div>
+        <slot name="application-links"></slot>
+        <div><a class="outside" href="https://money.cnn.com/data/fear-and-greed/" target="blank">f&g index</a></div>
+        <div><a class="outside" href="https://stockcharts.com/def/servlet/Favorites.CServlet" target="_blank">sc/dash</a></div>
+        <div><a class="outside" href="https://stockcharts.com/def/servlet/SC.scan" target="_blank">sc/scans</a></div>
         <slot></slot>
     </div>
 </template>
@@ -21,4 +21,34 @@ export default {
 };
 </script>
 
-<style></style>
+<style>
+.top {
+    display: flex;
+    padding: 10px;
+    flex-wrap: wrap;
+}
+
+.top div {
+    padding-right: 1em;
+}
+
+.top .sort-options a,
+.top .toggles a {
+    padding-right: 1em;
+    color: #666666;
+}
+
+.top .sort-options .selected,
+.top .toggles .selected {
+    font-weight: bold;
+    color: #8c5e80;
+}
+
+.top a.outside {
+    color: #000000;
+}
+
+#app.dark .top a.outside {
+    color: #ffffff;
+}
+</style>
