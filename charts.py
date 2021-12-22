@@ -216,10 +216,13 @@ CsvConverters = {
 
 
 async def write_prices_csv(path: str, df: DataFrame):
+    if df.isnull().any(axis=1).sum() > 0:
+        raise Exception(f"writing null rows: {path}")
+    csv_data = df.to_csv()
+    if len(csv_data) == 0:
+        raise Exception(f"writing empty csv: {path}")
     async with aiofiles.open(path, mode="w") as f:
-        if df.isnull().any(axis=1).sum() > 0:
-            raise Exception(f"writing null rows: {path}")
-        await f.write(df.to_csv())
+        await f.write(csv_data)
 
 
 def read_prices_csv_sync(path: Union[str, TextIO]) -> DataFrame:
