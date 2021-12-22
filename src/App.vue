@@ -2,7 +2,7 @@
     <div id="app" :class="theme">
         <div class="top">
             <div><router-link to="/">home</router-link></div>
-            <div><router-link to="/symbols">choose symbols</router-link></div>
+            <div><router-link to="/profile">profile</router-link></div>
             <div><router-link to="/options">options</router-link></div>
             <div><a href="#" v-on:click="toggleStyle">theme</a></div>
             <div><a href="#" v-on:click="render">render</a></div>

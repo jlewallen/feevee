@@ -78,7 +78,7 @@ class SymbolStorage:
             "CREATE TABLE IF NOT EXISTS user_lot_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), modified DATETIME NOT NULL, body TEXT NOT NULL)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS user_lot_ledger_idx ON user_lot_ledger (user_id)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS user_lot_ledger_idx ON user_lot_ledger (user_id)"
         )
 
         await self.db.execute(
@@ -149,7 +149,7 @@ class SymbolStorage:
             for row in rows
         }
 
-    async def add_symbols(self, user_key: UserKey, symbols: List[str]):
+    async def add_symbols(self, user_key: UserKey, symbols: List[str]) -> List[str]:
         assert self.db
 
         changed: List[str] = []
@@ -175,7 +175,7 @@ class SymbolStorage:
 
         return changed
 
-    async def remove_symbols(self, user_key: UserKey, symbols: List[str]):
+    async def remove_symbols(self, user_key: UserKey, symbols: List[str]) -> List[str]:
         assert self.db
 
         for symbol in symbols:
@@ -256,6 +256,39 @@ class SymbolStorage:
             )
             notes[symbol] = [note_row]
         return notes
+
+    async def update_lots(self, user_key: UserKey, lots: str):
+        assert self.db
+        await self.db.execute(
+            """
+            INSERT INTO user_lot_ledger (user_id, modified, body) VALUES (?, ?, ?) 
+            ON CONFLICT(user_id) DO UPDATE
+            SET modified = excluded.modified, body = excluded.body
+            """,
+            [
+                user_key.uid,
+                datetime.utcnow(),
+                lots,
+            ],
+        )
+
+        await self._user_modified(user_key)
+
+        updated_user_key = await self.get_user_key_by_user_id(user_key.uid)
+
+        await self.db.commit()
+
+        return updated_user_key
+
+    async def get_lots(self, user_key: UserKey) -> str:
+        assert self.db
+        dbc = await self.db.execute(
+            "SELECT user_id, modified, body FROM user_lot_ledger WHERE user_id = ?",
+            [user_key.uid],
+        )
+        for row in await dbc.fetchall():
+            return row[2]
+        return ""
 
     async def add_notes(
         self,

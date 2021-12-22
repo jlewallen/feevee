@@ -1,14 +1,14 @@
-from typing import List, Dict, Optional, Sequence, Tuple, Iterable, Any
+from typing import List, Dict, Optional, Any
 from decimal import Decimal, ROUND_HALF_UP
 from quart import Quart, send_from_directory, request, Response
 from quart import json as quart_json
 from quart_cors import cors
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from aiocache import cached
 from dataclasses import dataclass, field
 from ta.volume import AccDistIndexIndicator
-import logging, json, re, asyncio, itertools
+import logging, json, re
 
 from backend import (
     CheckSymbolMessage,
@@ -487,7 +487,7 @@ async def _basic_refresh(user: UserKey, symbol: str):
 
 
 @app.route("/symbols", methods=["POST"])
-async def add_symbols():
+async def modify_symbols():
     user = await get_user()
     raw = await request.get_data()
     parsed: Dict[str, List[str]] = json.loads(raw)
@@ -498,6 +498,20 @@ async def add_symbols():
             await refreshing.push(CheckSymbolMessage(user, symbol))
     else:
         await repository.remove_symbols(user, symbols)
+
+    return dict()
+
+
+@app.route("/lots", methods=["POST"])
+async def modify_lots():
+    user = await get_user()
+    raw = await request.get_data()
+    parsed: Dict[str, str] = json.loads(raw)
+    lots_text = parsed["lots"]
+
+    log.info(f"lots: {lots_text}")
+
+    await repository.update_lots(user, lots_text)
 
     return dict()
 

@@ -145,11 +145,6 @@ class Stock:
         return tag in self.notes.tags
 
 
-def cache_key_from_files(*paths) -> List[str]:
-    parts = [[p, archive.get_time(os.path.join(MoneyCache, p))] for p in paths]
-    return [(str(p)) for p in flatten(parts)]
-
-
 def finish_key(parts: Sequence[str]) -> str:
     return ",".join(parts)
 
@@ -174,14 +169,12 @@ def _load_portfolio_key(fn, user: UserKey) -> str:
 
 @cached(key_builder=_load_portfolio_key, **Caching)
 async def load_portfolio(user: UserKey) -> Portfolio:
-    log.info(f"profile:reading lots.txt")
-    async with aiofiles.open(os.path.join(MoneyCache, "lots.txt"), mode="r") as file:
-        lots = stocklots.parse(await file.read())
-
     meta = await load_meta()
-
     user_symbols = await load_all_symbols(user)
     all_symbols = [row.symbol for row in user_symbols.values()]
+    db = await get_db()
+    lots_raw = await db.get_lots(user)
+    lots = stocklots.parse(lots_raw)
 
     if "FEEVEE_SYMBOLS" in os.environ:
         filtered = os.environ["FEEVEE_SYMBOLS"].split(" ")
@@ -904,13 +897,17 @@ class SymbolRepository:
             portfolio.user = user
         return await self.get_stock(user, symbol, portfolio)
 
-    async def add_symbols(str, user: UserKey, symbols: List[str]):
+    async def add_symbols(self, user: UserKey, symbols: List[str]) -> List[str]:
         db = await get_db()
         return await db.add_symbols(user, symbols)
 
-    async def remove_symbols(str, user: UserKey, symbols: List[str]):
+    async def remove_symbols(self, user: UserKey, symbols: List[str]) -> List[str]:
         db = await get_db()
         return await db.remove_symbols(user, symbols)
+
+    async def update_lots(self, user: UserKey, lots: str) -> UserKey:
+        db = await get_db()
+        return await db.update_lots(user, lots)
 
 
 def rounding(v: Decimal) -> Decimal:

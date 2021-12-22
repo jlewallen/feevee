@@ -1,7 +1,7 @@
 import Vue from "vue";
 import Layout from "./Layout.vue";
 import App from "./App.vue";
-import SymbolsEditor from "./SymbolsEditor.vue";
+import ProfileEditor from "./ProfileEditor.vue";
 import OptionAnalysis from "./OptionAnalysis.vue";
 import VueRouter from "vue-router";
 import VueLazyload from "vue-lazyload";
@@ -18,7 +18,7 @@ Vue.use(VueLazyload, {
 
 const routes = [
     { path: "/", component: App },
-    { path: "/symbols", component: SymbolsEditor },
+    { path: "/profile", component: ProfileEditor },
     { path: "/options", component: OptionAnalysis },
     { path: "/tags/:tags", component: App },
 ];
