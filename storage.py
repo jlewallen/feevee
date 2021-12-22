@@ -2,6 +2,7 @@ from typing import List, Optional, Any, Dict
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from aiocache import cached, Cache
 import aiosqlite, os, logging, jsonpickle
 
 log = logging.getLogger("storage")
@@ -100,6 +101,7 @@ class SymbolStorage:
         assert self.db
         await self.db.close()
 
+    @cached(ttl=1, cache=Cache.MEMORY)
     async def get_user_key_by_user_id(self, user_id: int) -> UserKey:
         assert self.db
         symbol_keys = await self._get_user_symbol_keys(user_id)
