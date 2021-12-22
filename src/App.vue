@@ -1,9 +1,6 @@
 <template>
     <div id="app" :class="theme">
-        <div class="top">
-            <div><router-link to="/">home</router-link></div>
-            <div><router-link to="/profile">profile</router-link></div>
-            <div><router-link to="/options">options</router-link></div>
+        <Header>
             <div><a href="#" v-on:click="toggleStyle">theme</a></div>
             <div><a href="#" v-on:click="render">render</a></div>
             <div><a href="#" v-on:click="clear">clear cache</a></div>
@@ -19,14 +16,10 @@
             </div>
             <div>{{ visible.length }} symbols</div>
             <div>${{ portfolioValue.toFixed(2) }}</div>
-            <div>
-                links:
-                <a href="https://money.cnn.com/data/fear-and-greed/" target="blank">f&g index</a>
-            </div>
             <form class="form-inline">
                 <input type="text" v-model="form.filter" />
             </form>
-        </div>
+        </Header>
         <div class="tags">
             <span
                 :class="{
@@ -49,8 +42,10 @@
 import _ from "lodash";
 import Vue from "vue";
 import { makeApiUrl, repeatedly } from "./api";
-import Symbols from "./views/Symbols.vue";
 import { getNotesFactor } from "./Symbol.vue";
+
+import Symbols from "./views/Symbols.vue";
+import Header from "./Header.vue";
 
 export const SortPriority = "sortPriority";
 export const SortSymbol = "sortSymbol";
@@ -60,6 +55,10 @@ export const SortFreshness = "sortFreshness";
 
 export default {
     name: "App",
+    components: {
+        Symbols,
+        Header,
+    },
     data() {
         const theme = window.localStorage["feevee:theme"];
         const sort = window.localStorage["feevee:sort"];
@@ -79,9 +78,6 @@ export default {
             sortAbsolutePercentChange: SortAbsolutePercentChange,
             sortFreshness: SortFreshness,
         };
-    },
-    components: {
-        Symbols,
     },
     computed: {
         tags() {

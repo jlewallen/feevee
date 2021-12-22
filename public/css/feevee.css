@@ -1,4 +1,8 @@
 html,
 body {
-  margin: 0em;
+    margin: 0em;
+}
+
+body {
+    overflow-y: scroll; /* show scrollbars */
 }

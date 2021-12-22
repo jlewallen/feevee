@@ -1,8 +1,6 @@
 <template>
     <div id="app">
-        <div class="top">
-            <div><router-link to="/">home</router-link></div>
-        </div>
+        <Header />
         <div class="editors">
             <div class="symbols-editor">
                 <h4>Symbols</h4>
@@ -33,9 +31,11 @@
 
 <script>
 import { makeApiUrl } from "./api";
+import Header from "./Header.vue";
 
 export default {
     name: "SymbolsEditor",
+    components: { Header },
     data() {
         return {
             form: {
@@ -44,7 +44,6 @@ export default {
             },
         };
     },
-    components: {},
     computed: {},
     methods: {
         async onAddRemoveSymbols(adding) {
