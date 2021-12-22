@@ -457,7 +457,7 @@ def _render_ohlc(
         trading_today = date_range[1].replace(
             hour=6, minute=30, second=0, microsecond=0
         )
-        days_in_range = range_delta.days
+        days_in_range = int(range_delta.days)
         tick_values = [
             trading_today - timedelta(days=i) for i in range(days_in_range + 1)
         ]
