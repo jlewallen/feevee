@@ -34,4 +34,6 @@ COPY logging.json /app/
 ENV FEEVEE_REDIS_HOST 172.17.0.2
 ENV TZ America/Los_Angeles
 
+USER 1000
+
 ENTRYPOINT [ "uvicorn", "--log-config", "/app/logging.json", "--host", "0.0.0.0", "--port", "8000", "--factory", "app:factory" ]
