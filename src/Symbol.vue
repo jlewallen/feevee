@@ -528,18 +528,22 @@ export default {
 }
 
 .symbol-container.multicolumn .expansion .form-inline textarea {
-    width: 50%;
     flex-grow: 1;
 }
 
 /* Debugging */
 
 /*
+
+.symbol-container {
+    background-color: #0fa0af;
+}
 .expansion {
-  background-color: #afaf00;
+    background-color: #afaf00;
 }
 .form-inline {
-  background-color: #af00af;
+    background-color: #af00af;
 }
+
 */
 </style>
