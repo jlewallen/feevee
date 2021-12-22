@@ -12,6 +12,7 @@ import logging, json, re
 
 from backend import (
     CheckSymbolMessage,
+    Financials,
     Portfolio,
     chunked,
     ManageCandles,
@@ -402,13 +403,16 @@ DefaultTagPriorities = {
     "lf": 1,
     "slow": 1,
 }
+
+financials = Financials()
 candles = MessageWorker(
     ManageCandles(
+        financials,
         tag_priorities=DefaultTagPriorities,
     )
 )
 indicators = MessageWorker(ManageIndicators())
-dailies = MessageWorker(ManageDailies(tag_priorities=DefaultTagPriorities))
+dailies = MessageWorker(ManageDailies(financials, tag_priorities=DefaultTagPriorities))
 web_charts = WebChartsCacheWarmer()
 symbol_checker = MessageWorker(SymbolChecker())
 refreshing = RefreshQueue(

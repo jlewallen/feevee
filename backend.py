@@ -17,7 +17,6 @@ from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
 from storage import get_db, UserKey, SymbolRow, NoteRow, UserId
-from alpha_vantage.timeseries import TimeSeries
 from asyncio_throttle import Throttler, throttler  # type: ignore
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -39,9 +38,6 @@ Caching = (
     dict(cache=Cache.REDIS, serializer=PickleSerializer(), endpoint=RedisAddress)
     if RedisAddress
     else {}
-)
-AlphaVantageKey = (
-    os.environ["ALPHA_VANTAGE_KEY"] if "ALPHA_VANTAGE_KEY" in os.environ else None
 )
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
 PriorityMiddle = 0.5
@@ -463,9 +459,60 @@ class StockSorter:
 
 
 @dataclass
+class Financials:
+    throttler: Throttler = Throttler(rate_limit=30, period=60)
+
+    async def query(self, symbol: str, csv_path: str, candles: bool):
+        if FinnHubKey is None:
+            log.info(f"{symbol:6} financials:no-key")
+            return
+
+        async with self.throttler:
+            fc = finnhub.Client(api_key=FinnHubKey)
+            window = timedelta(hours=24) if candles else timedelta(days=365)
+            now = datetime.utcnow()
+            start = now - window
+            res = fc.stock_candles(
+                symbol,
+                "5" if candles else "D",
+                int(mktime(start.timetuple())),
+                int(mktime(now.timetuple())),
+            )
+            if res["s"] != "ok":
+                log.info(f"{symbol:6} financials:no-data")
+                return
+
+        try:
+            await self._merge_ohlc(symbol, csv_path, res)
+        except:
+            log.exception(f"{symbol:6} financials:error")
+
+    async def _merge_ohlc(self, symbol: str, csv_path: str, res: Dict[str, Any]):
+        df = Candles(symbol, []).to_df()
+        if os.path.isfile(csv_path):
+            df = await charts.read_prices_csv(csv_path)
+            log.info(f"{symbol:6} financials:read {csv_path} {len(df.index)}")
+
+        size_before = len(df.index)
+        candles = parse_candles(symbol, **res)
+        incoming = candles.to_df()
+        for index, row in incoming.iterrows():
+            if index in df.index:
+                continue
+            log.debug(f"{symbol:6} financials:new")
+            df = df.append(row)
+
+        size_after = len(df.index)
+        log.info(f"{symbol:6} financials before={size_before} after={size_after}")
+        if size_after != size_before:
+            await charts.write_prices_csv(csv_path, df)
+            log.info(f"{symbol:6} financials:wrote {csv_path} {size_after}")
+
+
+@dataclass
 class ManageDailies(MessageHandler):
+    financials: Financials
     tag_priorities: Dict[str, float] = field(default_factory=dict)
-    throttler: Throttler = Throttler(rate_limit=DailiesPerMinute, period=60)
     touched: Touched = field(default_factory=Touched)
 
     async def service(
@@ -521,16 +568,7 @@ class ManageDailies(MessageHandler):
                 log.info(f"{m.symbol:6} daily:fresh")
                 return
 
-        if AlphaVantageKey is None:
-            log.info(f"{m.symbol:6} daily:no-key")
-            return
-
-        async with self.throttler:
-            ts = TimeSeries(key=AlphaVantageKey, output_format="pandas")
-            data, meta = ts.get_daily_adjusted(symbol=m.symbol, outputsize="full")
-            data.to_csv(daily_path)
-
-            log.info(f"{m.symbol:6} daily:wrote")
+        await self.financials.query(m.symbol, daily_path, False)
 
         await messages.push(RefreshChartsMessage(m.user, m.symbol))
 
@@ -575,8 +613,8 @@ async def is_missing(path: str) -> bool:
 
 @dataclass
 class ManageCandles(MessageHandler):
+    financials: Financials
     tag_priorities: Dict[str, float] = field(default_factory=dict)
-    throttler: Throttler = Throttler(rate_limit=CandlesPerMinute, period=60)
     touched: Touched = field(default_factory=Touched)
 
     async def service(
@@ -604,54 +642,12 @@ class ManageCandles(MessageHandler):
             await messages.push(RefreshCandlesMessage(portfolio.user, symbol))
             self.touched.touch(symbol)
 
-    async def _append_candles(self, m: SymbolMessage, res: Dict[str, Any]):
-        csv_path = os.path.join(
+    async def handle(self, messages: MessagePublisher, m: SymbolMessage):
+        candles_path = os.path.join(
             MoneyCache, charts.get_relative_candles_csv_path(m.symbol)
         )
-        df = Candles(m.symbol, []).to_df()
-        if os.path.isfile(csv_path):
-            df = await charts.read_prices_csv(csv_path)
-            log.info(f"{m.symbol:6} candles:read {csv_path} {len(df.index)}")
 
-        size_before = len(df.index)
-        candles = parse_candles(m.symbol, **res)
-        incoming = candles.to_df()
-        for index, row in incoming.iterrows():
-            if index in df.index:
-                continue
-            log.debug(f"{m.symbol:6} candles:new")
-            df = df.append(row)
-
-        size_after = len(df.index)
-        log.info(f"{m.symbol:6} candles before={size_before} after={size_after}")
-        if size_after != size_before:
-            await charts.write_prices_csv(csv_path, df)
-            log.info(f"{m.symbol:6} candles:wrote {csv_path} {size_after}")
-
-    async def handle(self, messages: MessagePublisher, m: SymbolMessage):
-        if FinnHubKey is None:
-            log.info(f"{m.symbol:6} candles:no-key")
-            return
-
-        async with self.throttler:
-            # TODO Try 1m with shorter interval.
-            fc = finnhub.Client(api_key=FinnHubKey)
-            now = datetime.utcnow()
-            start = now - timedelta(hours=24)
-            res = fc.stock_candles(
-                m.symbol,
-                "5",
-                int(mktime(start.timetuple())),
-                int(mktime(now.timetuple())),
-            )
-            if res["s"] != "ok":
-                log.info(f"{m.symbol:6} candles:no-data")
-                return
-
-        try:
-            await self._append_candles(m, res)
-        except:
-            log.exception(f"{m.symbol:6} candles:error")
+        await self.financials.query(m.symbol, candles_path, True)
 
         if m.render:
             await messages.push(RefreshChartsMessage(m.user, m.symbol))
