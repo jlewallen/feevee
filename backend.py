@@ -4,20 +4,17 @@ from typing import (
     Dict,
     Optional,
     Sequence,
-    Tuple,
     Any,
-    cast,
     Callable,
     Any,
     Iterable,
 )
-from dateutil.relativedelta import relativedelta
 from dataclasses import dataclass, field
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
 from storage import get_db, UserKey, SymbolRow, NoteRow, UserId
-from asyncio_throttle import Throttler, throttler  # type: ignore
+from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
 from pytz import timezone
 from time import mktime
@@ -164,6 +161,10 @@ class StockInfo:
     user: UserKey
     all_symbols: Optional[Dict[str, SymbolRow]] = None
     all_notes: Optional[Dict[str, List[NoteRow]]] = None
+
+    async def load(self):
+        await self.load_all_symbols()
+        await self.load_all_notes()
 
     async def load_all_symbols(self) -> Dict[str, SymbolRow]:
         if self.all_symbols is None:
@@ -868,6 +869,7 @@ class SymbolRepository:
         portfolio: Portfolio,
         stock_info: StockInfo,
     ) -> List[Stock]:
+        await stock_info.load()
         return await chunked(
             "batch-db",
             portfolio.symbols,
