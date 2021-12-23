@@ -108,10 +108,10 @@ class SymbolPrices:
             one_year = file.df[today - relativedelta(months=12) : today]  # type: ignore
             self.one_year_range = price_range(one_year)
 
-            log.info(f"{self.symbol:6} prices:dailies = {self.daily_end}")
+            log.info(f"{self.symbol:6} prices:daily = {self.daily_end}")
         else:
             self.candle = file_end
-            log.info(f"{self.symbol:6} prices:candles = {self.candle}")
+            log.info(f"{self.symbol:6} prices:intra = {self.candle}")
 
     def daily_prices(self) -> charts.Prices:
         for file in [f for f in self.files.values() if f.daily]:
@@ -144,7 +144,7 @@ def _reload(cache: Dict[str, SymbolPrices], file: SymbolPriceFile):
 def _get_symbol_price_files(
     entries: Sequence[archive.DirectoryEntry],
 ) -> List[SymbolPriceFile]:
-    pattern = re.compile("([^/]+)-(daily|candles).csv")
+    pattern = re.compile("([^/]+)-(daily|iday).csv")
     symbol_files: List[SymbolPriceFile] = []
     for entry in entries:
         m = pattern.search(entry.path)

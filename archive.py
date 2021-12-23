@@ -19,7 +19,7 @@ class DirectoryEntry:
 def _is_interesting(file_name: str) -> bool:
     if file_name[0] == ".":
         return False
-    return "-daily.csv" in file_name or "-candles.csv" in file_name
+    return "-daily.csv" in file_name or "-iday.csv" in file_name
 
 
 def _stat_ignore_fnf(path: str):

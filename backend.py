@@ -460,19 +460,22 @@ class StockSorter:
 class Financials:
     throttler: Throttler = Throttler(rate_limit=30, period=60)
 
-    async def query(self, symbol: str, csv_path: str, candles: bool):
+    async def query(self, symbol: str, csv_path: str, intraday: bool):
         if FinnHubKey is None:
             log.info(f"{symbol:6} financials:no-key")
             return
 
         async with self.throttler:
             fc = finnhub.Client(api_key=FinnHubKey)
-            window = timedelta(hours=24) if candles else timedelta(days=365)
-            now = datetime.utcnow()
+            window = timedelta(days=3) if intraday else timedelta(days=363)
+            now = datetime.today().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=1)
             start = now - window
+            log.info(f"{symbol:6} financials:querying {start} -> {now}")
             res = fc.stock_candles(
                 symbol,
-                "5" if candles else "D",
+                "5" if intraday else "D",
                 int(mktime(start.timetuple())),
                 int(mktime(now.timetuple())),
             )
@@ -489,7 +492,7 @@ class Financials:
         df = Candles(symbol, []).to_df()
         if os.path.isfile(csv_path):
             df = await charts.read_prices_csv(csv_path)
-            log.info(f"{symbol:6} financials:read {csv_path} {len(df.index)}")
+            log.info(f"{symbol:6} financials:read {csv_path} samples={len(df.index)}")
 
         size_before = len(df.index)
         candles = parse_candles(symbol, **res)
@@ -501,10 +504,11 @@ class Financials:
             df = df.append(row)
 
         size_after = len(df.index)
-        log.info(f"{symbol:6} financials before={size_before} after={size_after}")
         if size_after != size_before:
             await charts.write_prices_csv(csv_path, df)
-            log.info(f"{symbol:6} financials:wrote {csv_path} {size_after}")
+            log.info(
+                f"{symbol:6} financials:wrote {csv_path} samples={size_after - size_before}"
+            )
 
 
 @dataclass
@@ -556,13 +560,10 @@ class ManageDailies(MessageHandler):
             MoneyCache, charts.get_relative_daily_prices_path(m.symbol)
         )
 
-        if m.maximum_age > 0 and os.path.isfile(daily_path):
+        daily_prices_time = archive.get_time(daily_path)
+        if m.maximum_age > 0 and daily_prices_time:
             local_now = datetime.now().timestamp()
-            daily_prices_time = archive.get_time(daily_path)
-            if (
-                daily_prices_time
-                and local_now - daily_prices_time.timestamp() < m.maximum_age
-            ):
+            if local_now - daily_prices_time.timestamp() < m.maximum_age:
                 log.info(f"{m.symbol:6} daily:fresh")
                 return
 
@@ -595,7 +596,7 @@ async def backup_daily_file(path: str):
 
 
 async def write_json_file(data: Any, path: str):
-    json_path = os.path.join(os.path.join(MoneyCache, ".av"), path)
+    json_path = os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
     await backup_daily_file(json_path)
     async with aiofiles.open(json_path, mode="w") as file:
         await file.write(json.dumps(data))
@@ -603,7 +604,9 @@ async def write_json_file(data: Any, path: str):
 
 async def is_missing(path: str) -> bool:
     try:
-        await aiofiles.os.stat(os.path.join(os.path.join(MoneyCache, ".av"), path))
+        await aiofiles.os.stat(
+            os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
+        )
         return False
     except FileNotFoundError:
         return True
@@ -631,21 +634,21 @@ class ManageCandles(MessageHandler):
 
         sorter = StockSorter(tag_priorities=self.tag_priorities)
         available = [stock for stock in stocks if can_refresh(stock)]
-        by_time = sorter.sort(available)
-        refreshing = by_time[:CandlesPerMinute]
+        ordered = sorter.sort(available)
+        refreshing = ordered[:CandlesPerMinute]
         symbols = [stock.symbol for stock in refreshing]
         if symbols:
             log.info(f"queue:candles {symbols}")
         for symbol in symbols:
-            await messages.push(RefreshCandlesMessage(portfolio.user, symbol))
             self.touched.touch(symbol)
+            await messages.push(RefreshCandlesMessage(portfolio.user, symbol))
 
     async def handle(self, messages: MessagePublisher, m: SymbolMessage):
-        candles_path = os.path.join(
-            MoneyCache, charts.get_relative_candles_csv_path(m.symbol)
+        intraday_path = os.path.join(
+            MoneyCache, charts.get_relative_intraday_prices_path(m.symbol)
         )
 
-        await self.financials.query(m.symbol, candles_path, True)
+        await self.financials.query(m.symbol, intraday_path, True)
 
         if m.render:
             await messages.push(RefreshChartsMessage(m.user, m.symbol))
@@ -704,13 +707,6 @@ class ManageIndicators(MessageHandler):
         if FinnHubKey is None:
             log.info(f"{m.symbol:6} indicators:no-key")
             return
-
-        fc = finnhub.Client(api_key=FinnHubKey)
-        res = fc.recommendation_trends(m.symbol)
-
-        await write_json_file(res, charts.get_recommendations_path(m.symbol))
-
-        log.info(f"{m.symbol:6} indicators:wrote")
 
     async def create_throttle(self):
         return Throttler(rate_limit=5, period=60)
@@ -816,7 +812,7 @@ class RefreshQueue(MessagePublisher):
                 break
 
     def _get_watch_dir(self) -> str:
-        return os.path.join(MoneyCache, ".av")
+        return os.path.join(MoneyCache, charts.PriceDirectory)
 
     async def _delayed_start(self):
         await asyncio.sleep(60)
@@ -922,11 +918,13 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
         return prices
 
     daily_max_time = prices.daily.index.max() + timedelta(hours=24)
-    candles_max_time = candles.daily.index[-1]
+    intra_max_time = candles.daily.index[-1]
 
     candles_after_daily = candles.history(daily_max_time, datetime.now())
     if candles_after_daily.empty:
-        log.info(f"{candles.symbol:6} candles:ignore daily-max={daily_max_time}")
+        log.info(
+            f"{candles.symbol:6} candles:ignore daily-max={daily_max_time} intra-max={intra_max_time}"
+        )
         return prices
 
     opening = rounding(candles_after_daily.daily[charts.DailyOpenColumn][0])
@@ -943,9 +941,9 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
     copy.daily.at[last_key, charts.DailyLowColumn] = low
     copy.daily.at[last_key, charts.DailyHighColumn] = high
     copy.daily.at[last_key, charts.DailyCloseColumn] = closing
-    copy.daily.at[last_key, charts.DailyVolumeColumns] = volume
+    copy.daily.at[last_key, charts.DailyVolumeColumn] = volume
     log.info(
-        f"{candles.symbol:6} candles:include daily-max={daily_max_time} candles-max={candles_max_time} candles={len(candles_after_daily.daily.index)} open={opening} low={low} high={high} closing={closing}"
+        f"{candles.symbol:6} candles:include daily-max={daily_max_time} candles-max={intra_max_time} candles={len(candles_after_daily.daily.index)} open={opening} low={low} high={high} closing={closing}"
     )
     return copy
 
@@ -976,7 +974,7 @@ async def load_daily_symbol_prices(symbol: str) -> charts.Prices:
     symbol_prices = await pricing.get_prices(symbol)
     prices = symbol_prices.daily_prices()
     elapsed = datetime.utcnow() - started
-    log.info(f"{symbol:6} daily:df elapsed={elapsed}")
+    log.debug(f"{symbol:6} daily:df elapsed={elapsed}")
     return prices
 
 
@@ -986,7 +984,7 @@ async def load_symbol_prices(symbol: str):
     daily = await load_daily_symbol_prices(symbol)
     with_candles = _include_candles(daily, candles)
     elapsed = datetime.utcnow() - started
-    log.info(f"{symbol:6} prices:df elapsed={elapsed}")
+    log.debug(f"{symbol:6} prices:df elapsed={elapsed}")
     return with_candles
 
 
@@ -1025,7 +1023,7 @@ class Candles:
             charts.DailyLowColumn,
             charts.DailyHighColumn,
             charts.DailyCloseColumn,
-            charts.DailyVolumeColumns[0],
+            charts.DailyVolumeColumn,
         ]
         df = pandas.DataFrame(data, columns=columns, index=index)
         df.index.name = charts.DailyDateColumn

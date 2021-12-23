@@ -22,8 +22,22 @@
             ],
             "propagate": false
         },
+        "aiosqlite": {
+            "level": "INFO",
+            "handlers": [
+                "console"
+            ],
+            "propagate": true
+        },
+        "aiocache": {
+            "level": "INFO",
+            "handlers": [
+                "console"
+            ],
+            "propagate": true
+        },
         "aioredis": {
-            "level": "DEBUG",
+            "level": "INFO",
             "handlers": [
                 "console"
             ],
@@ -52,7 +66,7 @@
         }
     },
     "root": {
-        "level": "INFO",
+        "level": "DEBUG",
         "handlers": [
             "console"
         ]

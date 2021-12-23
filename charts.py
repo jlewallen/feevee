@@ -15,11 +15,12 @@ import aiofiles, io
 log = logging.getLogger("feevee")
 pool: Optional[concurrent.futures.ProcessPoolExecutor] = None
 DailyDateColumn = "date"
-DailyOpenColumn = "1. open"
-DailyHighColumn = "2. high"
-DailyLowColumn = "3. low"
-DailyCloseColumn = "4. close"
-DailyVolumeColumns = ["6. volume", "5. volume"]
+DailyOpenColumn = "open"
+DailyHighColumn = "high"
+DailyLowColumn = "low"
+DailyCloseColumn = "close"
+DailyVolumeColumn = "volume"
+PriceDirectory = ".prices"
 
 
 @dataclass
@@ -120,10 +121,7 @@ class Prices:
         return (lows.min(), highs.max())
 
     def volume_column(self) -> str:
-        for column in DailyVolumeColumns:
-            if column in self.daily:
-                return column
-        raise Exception("no volume column")
+        return DailyVolumeColumn
 
     def volume_range(self) -> Tuple[Decimal, Decimal]:
         vols = self.daily[self.volume_column()]
@@ -180,20 +178,12 @@ class Prices:
         return self.daily[self.volume_column()]
 
 
-def get_relative_candles_csv_path(symbol: str) -> str:
-    return f".av/{symbol}-candles.csv"
-
-
-def get_recommendations_path(symbol: str) -> str:
-    return f".av/{symbol}-recs.json"
-
-
 def get_relative_intraday_prices_path(symbol: str) -> str:
-    return f".av/{symbol}-iday.csv"
+    return f"{PriceDirectory}/{symbol}-iday.csv"
 
 
 def get_relative_daily_prices_path(symbol: str) -> str:
-    return f".av/{symbol}-daily.csv"
+    return f"{PriceDirectory}/{symbol}-daily.csv"
 
 
 def decimal_from_value(value):
@@ -594,7 +584,7 @@ def make_empty_prices_df() -> DataFrame:
         DailyLowColumn,
         DailyHighColumn,
         DailyCloseColumn,
-        DailyVolumeColumns[0],
+        DailyVolumeColumn,
     ]
     df = DataFrame(data, columns=columns, index=pd.to_datetime(Series([])))
     df.index.name = DailyDateColumn

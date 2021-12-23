@@ -4,12 +4,21 @@ import logging, asyncio, os, aiofiles.os, json
 import QuantLib as ql
 import matplotlib.pyplot as plt
 import finnhub
+import argparse
 from pytz import timezone
 from time import mktime
 from dateutil.relativedelta import relativedelta
 from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
-from backend import MoneyCache, StockInfo, SymbolRepository, is_missing, write_json_file
+from backend import (
+    MoneyCache,
+    StockInfo,
+    SymbolRepository,
+    is_missing,
+    write_json_file,
+    Financials,
+)
+from charts import get_relative_daily_prices_path, get_relative_intraday_prices_path
 from storage import UserKey, get_db
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
@@ -115,6 +124,8 @@ async def main():
     db = await get_db()
     await db.open()
 
+    download = True
+
     try:
         log.info(f"querying user")
         user = await db.get_user_key_by_user_id(1)
@@ -135,7 +146,22 @@ async def main():
             today.strftime("%Y%m%d") if False else today.strftime("%Y%m%d_%H%M%S")
         )
 
+        financials = Financials()
+
         for stock in stocks:
+            if download:
+                daily_path = os.path.join(
+                    MoneyCache, get_relative_daily_prices_path(stock.symbol)
+                )
+                if not os.path.isfile(daily_path):
+                    await financials.query(stock.symbol, daily_path, False)
+
+                intraday_path = os.path.join(
+                    MoneyCache, get_relative_intraday_prices_path(stock.symbol)
+                )
+                if not os.path.isfile(intraday_path):
+                    await financials.query(stock.symbol, intraday_path, True)
+
             if stock.info and stock.info.options:
                 log.info(f"{stock.symbol:6} processing")
 
