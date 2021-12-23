@@ -142,6 +142,10 @@ class Prices:
     def maximum(self) -> Decimal:
         return self.daily[DailyHighColumn].max()
 
+    def after(self, start: datetime) -> "Prices":
+        sliced = self.daily[start:]  # type: ignore
+        return Prices(self.symbol, sliced)
+
     def history(self, start: datetime, end: datetime) -> "Prices":
         sliced = self.daily[start:end]  # type: ignore
         return Prices(self.symbol, sliced)

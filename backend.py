@@ -917,10 +917,10 @@ def _include_candles(prices: charts.Prices, candles: charts.Prices) -> charts.Pr
         log.info(f"{candles.symbol:6} candle:emtpy")
         return prices
 
-    daily_max_time = prices.daily.index.max() + timedelta(hours=24)
-    intra_max_time = candles.daily.index[-1]
+    daily_max_time = prices.daily.index.max()
+    intra_max_time = candles.daily.index.max()
 
-    candles_after_daily = candles.history(daily_max_time, datetime.now())
+    candles_after_daily = candles.after(daily_max_time)
     if candles_after_daily.empty:
         log.info(
             f"{candles.symbol:6} candles:ignore daily-max={daily_max_time} intra-max={intra_max_time}"
