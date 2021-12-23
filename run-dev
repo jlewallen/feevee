@@ -1,3 +1,6 @@
 #!/bin/bash
 
-PYTHONASYNCIODEBUG=1 MONEY_CACHE=~/espial/money uvicorn --log-config=`pwd`/logging.json --port 5000 --reload --factory "app:factory"
+pushd ..
+cp -f feevee.db backup.db
+popd
+PYTHONASYNCIODEBUG=1 MONEY_CACHE=~/espial/money FEEVEE_SYMBOLS="VTI QQQ" FEEVEE_DB=backup.db uvicorn --log-config=`pwd`/logging.json --port 5000 --reload --factory "app:factory"
