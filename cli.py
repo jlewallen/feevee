@@ -120,11 +120,14 @@ async def test():
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="feevee cli tool")
+    parser.add_argument("--prices", action="store_true", default=False)
+    parser.add_argument("--options", action="store_true", default=False)
+    args = parser.parse_args()
+
     repository = SymbolRepository()
     db = await get_db()
     await db.open()
-
-    download = True
 
     try:
         log.info(f"querying user")
@@ -149,7 +152,7 @@ async def main():
         financials = Financials()
 
         for stock in stocks:
-            if download:
+            if args.prices:
                 daily_path = os.path.join(
                     MoneyCache, get_relative_daily_prices_path(stock.symbol)
                 )
@@ -162,7 +165,7 @@ async def main():
                 if not os.path.isfile(intraday_path):
                     await financials.query(stock.symbol, intraday_path, True)
 
-            if stock.info and stock.info.options:
+            if args.options and stock.info and stock.info.options:
                 log.info(f"{stock.symbol:6} processing")
 
                 todays_chain_path = f"chain-{today_str}-{stock.symbol}.json"
