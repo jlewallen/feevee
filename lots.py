@@ -21,6 +21,10 @@ class Lot:
 class Lots:
     lots: List[Lot] = field(default_factory=list)
 
+    @property
+    def lots_key(self) -> str:
+        return f"Lots<{len(self.lots)}>"
+
     def for_symbol(self, symbol: str) -> "Lots":
         return Lots([l for l in self.lots if l.symbol == symbol])
 

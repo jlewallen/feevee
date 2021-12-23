@@ -105,7 +105,11 @@ class SymbolStorage:
         assert self.db
         symbol_keys = await self._get_user_symbol_keys(user_id)
         dbc = await self.db.execute(
-            "SELECT id, modified, MAX(notes.created) AS notes_modified FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ? GROUP BY users.id, users.modified",
+            """
+            SELECT users.id, users.modified, MAX(notes.created) AS notes_modified
+            FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ?
+            GROUP BY users.id, users.modified
+            """,
             [user_id],
         )
         found = [
@@ -119,6 +123,25 @@ class SymbolStorage:
         assert self.db
         dbc = await self.db.execute("SELECT id FROM users")
         return [row[0] for row in await dbc.fetchall()]
+
+    async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
+        assert self.db
+        dbc = await self.db.execute(
+            """
+            SELECT symbol, modified, earnings, candles, options, data
+            FROM symbols
+            WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?)
+            ORDER BY symbol
+            """,
+            [user_key.uid],
+        )
+        rows = await dbc.fetchall()
+        return {
+            row[0]: SymbolRow(
+                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
+            )
+            for row in rows
+        }
 
     async def has_symbol(self, symbol: str):
         assert self.db
@@ -136,20 +159,6 @@ class SymbolStorage:
             )
         return None
 
-    async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
-        assert self.db
-        dbc = await self.db.execute(
-            "SELECT symbol, modified, earnings, candles, options, data FROM symbols WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?) ORDER BY symbol",
-            [user_key.uid],
-        )
-        rows = await dbc.fetchall()
-        return {
-            row[0]: SymbolRow(
-                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
-            )
-            for row in rows
-        }
-
     async def add_symbols(self, user_key: UserKey, symbols: List[str]) -> List[str]:
         assert self.db
 
@@ -157,7 +166,11 @@ class SymbolStorage:
         for symbol in symbols:
             # TODO Make data nullable in the future.
             await self.db.execute(
-                "INSERT INTO symbols (symbol, modified, candles, earnings, candles, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                """
+                INSERT INTO symbols (symbol, modified, candles, earnings, candles, safe, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """,
                 [symbol, datetime.utcnow(), True, False, False, False, "{}"],
             )
 
@@ -170,7 +183,8 @@ class SymbolStorage:
                 log.info(f"{symbol:6} added")
                 changed.append(symbol)
 
-        await self._user_modified(user_key)
+        if len(changed) > 0:
+            await self._user_modified(user_key)
 
         await self.db.commit()
 

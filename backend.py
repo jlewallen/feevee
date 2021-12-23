@@ -202,29 +202,9 @@ class StockInfo:
         return Notes()
 
 
-def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
-    return finish_key(["load-portfolio", str(user)])
-
-
-@cached(key_builder=_load_portfolio_key, cache=Cache.MEMORY)
-async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
-    meta = await load_meta()
-    user_symbols = await stock_info.load_all_symbols()
-    all_symbols = [row.symbol for row in user_symbols.values()]
-    db = await get_db()
-    lots_raw = await db.get_lots(user)
-    lots = stocklots.parse(lots_raw)
-
-    if "FEEVEE_SYMBOLS" in os.environ:
-        filtered = os.environ["FEEVEE_SYMBOLS"].split(" ")
-        all_symbols = [s for s in all_symbols if s in filtered]
-
-    return Portfolio(user, all_symbols, lots, meta)
-
-
 def get_user_symbols_key(fn, portfolio: Portfolio, stock_info: StockInfo) -> str:
     price_key = finish_key(
-        [portfolio.get_symbol_key(symbol) or "" for symbol in portfolio.symbols]
+        [portfolio.get_symbol_key(symbol) or symbol for symbol in portfolio.symbols]
     )
     meta_key = finish_key(
         [pricing.get_symbol_prices_cache_key(symbol) for symbol in portfolio.symbols]
@@ -242,6 +222,30 @@ def get_user_symbols_key(fn, portfolio: Portfolio, stock_info: StockInfo) -> str
     )
 
 
+def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
+    return finish_key(["load-portfolio", str(user)])
+
+
+@cached(key_builder=_load_portfolio_key, cache=Cache.MEMORY)
+async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
+    meta = await load_meta()
+    user_symbols = await stock_info.load_all_symbols()
+    all_symbols = [row.symbol for row in user_symbols.values()]
+    db = await get_db()
+    lots_raw = await db.get_lots(user)
+    lots = stocklots.parse(lots_raw)
+
+    if "FEEVEE_SYMBOLS" in os.environ:
+        filtered = os.environ["FEEVEE_SYMBOLS"].split(" ")
+        all_symbols = [s for s in all_symbols if s in filtered]
+
+    portfolio = Portfolio(user, all_symbols, lots, meta)
+    symbols_key = get_user_symbols_key(load_portfolio, portfolio, stock_info)
+    log.info(f"{user.uid:6} loading portfolio {user} {symbols_key}")
+
+    return portfolio
+
+
 def _load_stock_key(
     fn, portfolio: Portfolio, symbol: str, stock_info: StockInfo
 ) -> str:
@@ -250,7 +254,7 @@ def _load_stock_key(
             fn.__name__,
             str(portfolio.user),
             symbol,
-            portfolio.get_symbol_key(symbol) or "",
+            portfolio.get_symbol_key(symbol) or symbol,
             pricing.get_symbol_prices_cache_key(symbol),
         ]
     )
@@ -261,13 +265,15 @@ async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -
     info = await stock_info.load_symbol_info(symbol)
     notes = await stock_info.load_symbol_notes(symbol)
     symbol_prices = await pricing.get_prices(symbol)
+    symbol_lots = portfolio.lots.for_symbol(symbol)
     notes_time = notes.time()
     hashing = finish_key(
         [
             symbol,
             str(notes_time),
-            portfolio.get_symbol_key(symbol) or "",
+            portfolio.get_symbol_key(symbol) or symbol,
             pricing.get_symbol_prices_cache_key(symbol),
+            symbol_lots.lots_key,
         ]
     )
 
@@ -285,7 +291,7 @@ async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -
         info,
         version,
         symbol_prices,
-        portfolio.lots.for_symbol(symbol),
+        symbol_lots,
         notes,
         meta,
     )

@@ -49,7 +49,7 @@ async def get_earnings_calendar():
         start += relativedelta(months=1)
 
 
-async def test():
+async def price_option():
     maturity_date = ql.Date(15, 1, 2016)
     spot_price = 170
     strike_price = 165
@@ -134,6 +134,8 @@ async def main():
         user = await db.get_user_key_by_user_id(1)
         assert user
 
+        log.info(f"user: {user}")
+
         stock_info = StockInfo(user)
 
         log.info(f"querying portfolio")
@@ -178,8 +180,6 @@ async def main():
     finally:
         log.info(f"closing")
         await db.close()
-
-    await test()
 
 
 if __name__ == "__main__":
