@@ -558,10 +558,9 @@ async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
     user = await get_user()
     stock_info = StockInfo(user)
     portfolio = await repository.get_portfolio(user, stock_info)
-    await web_charts.include_template(w, h, theme)
     stock = await repository.get_stock(user, symbol, portfolio, stock_info)
-    options = parse_options()
-    return await render_ohlc(stock, duration, w, h, theme, options)
+    await web_charts.include_template(w, h, theme)
+    return await render_ohlc(stock, duration, w, h, theme, parse_options())
 
 
 @app.route("/symbols/<symbol>/notes", methods=["POST"])

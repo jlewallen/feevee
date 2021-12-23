@@ -128,7 +128,7 @@ def _reload(cache: Dict[str, SymbolPrices], file: SymbolPriceFile):
     global data_frames_cache_
     try:
         started = datetime.utcnow()
-        log.info(f"{file.symbol:6} prices:loading {file.path}")
+        log.debug(f"{file.symbol:6} prices:loading {file.path}")
         df = read_prices_csv_sync(file.path)
         elapsed = datetime.utcnow() - started
 
@@ -136,7 +136,7 @@ def _reload(cache: Dict[str, SymbolPrices], file: SymbolPriceFile):
         symbol_prices = cache.setdefault(file.symbol, SymbolPrices(file.symbol))
         symbol_prices.update(file)
 
-        log.info(f"{file.symbol:6} prices:loaded elapsed={elapsed}")
+        log.debug(f"{file.symbol:6} prices:loaded elapsed={elapsed}")
     except:
         log.exception(f"{file.symbol:6} prices:error {file.path}")
 

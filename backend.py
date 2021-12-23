@@ -206,7 +206,7 @@ def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
     return finish_key(["load-portfolio", str(user)])
 
 
-@cached(key_builder=_load_portfolio_key, **Caching)
+@cached(key_builder=_load_portfolio_key, cache=Cache.MEMORY)
 async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
     meta = await load_meta()
     user_symbols = await stock_info.load_all_symbols()
