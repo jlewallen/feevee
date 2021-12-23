@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pandas import DataFrame, Series, read_csv
 from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
+from pytz import timezone
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -14,6 +15,8 @@ import aiofiles, io
 
 log = logging.getLogger("feevee")
 pool: Optional[concurrent.futures.ProcessPoolExecutor] = None
+ZoneEastern = timezone("EST")
+ZoneUTC = timezone("UTC")
 DailyDateColumn = "date"
 DailyOpenColumn = "open"
 DailyHighColumn = "high"
@@ -91,9 +94,9 @@ class Prices:
     daily: DataFrame
 
     def market_hours_only(self) -> "Prices":
-        filtered = self.daily.between_time("6:30", "13:00")
+        filtered = self.daily.between_time("9:30", "16:00")
         log.info(
-            f"{self.symbol:6} prices:market-hours daily={len(self.daily.index)} filtered={len(filtered.index)}"
+            f"{self.symbol:6} prices:market-hours before={len(self.daily.index)} filtered={len(filtered.index)}"
         )
         return Prices(self.symbol, filtered)
 
@@ -196,7 +199,12 @@ def decimal_from_value(value):
 
 def datetime_from_value(value):
     if ":" in value:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        return (
+            datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+            .replace(tzinfo=ZoneUTC)
+            .astimezone(ZoneEastern)
+            .replace(tzinfo=None)
+        )
     return datetime.strptime(value, "%Y-%m-%d")
 
 
@@ -455,13 +463,13 @@ def _render_ohlc(
         date_range = prices.date_range()
         range_delta = date_range[1] - date_range[0]
         trading_today = date_range[1].replace(
-            hour=6, minute=30, second=0, microsecond=0
+            hour=9, minute=30, second=0, microsecond=0
         )
         days_in_range = int(range_delta.days)
         tick_values = [
             trading_today - timedelta(days=i) for i in range(days_in_range + 1)
         ]
-        tick_labels = ["6:30" for i in range(days_in_range + 1)]
+        tick_labels = ["9:30" for i in range(days_in_range + 1)]
         fig.update_layout(
             xaxis=dict(
                 tickmode="array",
@@ -473,7 +481,7 @@ def _render_ohlc(
         fig.update_xaxes(
             rangebreaks=[
                 dict(bounds=["sat", "mon"]),
-                dict(bounds=[13, 6.5], pattern="hour"),
+                dict(bounds=[16, 9.5], pattern="hour"),
             ],
         )
 
