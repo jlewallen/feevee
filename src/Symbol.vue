@@ -173,7 +173,7 @@ import { makeApiUrl } from "./api";
 import Chart from "./Chart.vue";
 
 export function getNotesFactor(s) {
-    if (s.noted_prices.length == 0) {
+    if (s.noted_prices.length == 0 || !_.isNumber(s.price)) {
         return null;
     }
     const np = Number(s.noted_prices[0]);
