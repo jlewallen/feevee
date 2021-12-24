@@ -19,7 +19,7 @@ from backend import (
     Financials,
 )
 from charts import get_relative_daily_prices_path, get_relative_intraday_prices_path
-from storage import UserKey, get_db
+from storage import Criteria, UserKey, get_db
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
 throttler: Throttler = Throttler(rate_limit=10, period=60)
@@ -139,10 +139,15 @@ async def main():
         stock_info = StockInfo(user)
 
         log.info(f"querying portfolio")
-        portfolio = await repository.get_portfolio(user, stock_info)
+        portfolio = await repository.get_portfolio(user)
 
         log.info(f"querying stocks")
-        stocks = await repository.get_all_stocks(user, portfolio, stock_info)
+        stocks = await repository.get_all_stocks(
+            user,
+            portfolio,
+            stock_info,
+            Criteria(),
+        )
 
         await get_earnings_calendar()
 

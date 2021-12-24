@@ -162,8 +162,6 @@ class SymbolStorage:
     ) -> Dict[str, UserSymbol]:
         assert self.db
 
-        notes = await self._get_all_notes(user_key)
-
         dbc = await self.db.execute(
             """
             SELECT symbol, modified, earnings, candles, options, data
@@ -186,8 +184,16 @@ class SymbolStorage:
             for row in rows
         }
 
+        notes = await self._get_all_notes(user_key)
+
+        filtering: Optional[List[str]] = None
+        if "FEEVEE_SYMBOLS" in os.environ:
+            filtering = os.environ["FEEVEE_SYMBOLS"].split(" ")
+
         return {
-            key: UserSymbol(value, notes.get(key)) for key, value in symbols.items()
+            key: UserSymbol(value, notes.get(key))
+            for key, value in symbols.items()
+            if filtering is None or key in filtering
         }
 
     async def add_symbols(self, user_key: UserKey, symbols: List[str]) -> List[str]:

@@ -22,7 +22,6 @@ from aiocron import crontab
 import logging, os, json, re, threading, itertools
 import hashlib, asyncio, aiofiles
 import finnhub
-
 import charts, archive, prices as pricing, lots as stocklots
 
 
@@ -41,8 +40,6 @@ PriorityMiddle = 0.5
 MetaPaths: Dict[str, str] = {
     "sa": os.path.join(MoneyCache, "seeking-alpha/seeking-alpha.json"),
 }
-
-DailiesPerMinute = 5
 CandlesPerMinute = 20
 
 
@@ -90,14 +87,8 @@ class TagPriority:
 @dataclass
 class Portfolio:
     user: UserKey
-    symbols: List[str]
     lots: stocklots.Lots
     meta: Dict[str, Dict[str, Any]]
-
-    def get_symbol_key(self, symbol: str) -> Optional[str]:
-        if symbol in self.user.symbols:
-            return str(self.user.symbols[symbol])
-        return None
 
 
 @dataclass
@@ -138,14 +129,7 @@ class Stock:
         return tag in self.notes.tags
 
 
-def finish_key(parts: Sequence[str]) -> str:
-    return ",".join(parts)
-
-
-def flatten(a):
-    return [leaf for sl in a for leaf in sl]
-
-
+@cached(ttl=60)
 async def load_meta() -> Dict[str, Dict[str, Any]]:
     meta: Dict[str, Dict[str, Any]] = dict()
     for key, path in MetaPaths.items():
@@ -171,11 +155,10 @@ class StockInfo:
             self.all_symbols = await db.get_all_symbols(self.user, self.criteria)
         return self.all_symbols
 
-    async def load_symbol_info(self, symbol: str) -> Optional[UserSymbol]:
+    async def load_symbol_info(self, symbol: str) -> UserSymbol:
         all_symbols = await self.load_all_symbols()
-        if symbol in all_symbols:
-            return all_symbols[symbol]
-        return None
+        assert symbol in all_symbols
+        return all_symbols[symbol]
 
     async def load_symbol_notes(self, symbol: str) -> Notes:
         all_symbols = await self.load_all_symbols()
@@ -192,104 +175,6 @@ class StockInfo:
         prices_match = prices_pattern.findall(row.body)
         prices = [Decimal(m) for m in prices_match]
         return Notes([row], [row.body], tags_match, prices)
-
-
-def get_user_symbols_key(fn, portfolio: Portfolio, stock_info: StockInfo) -> str:
-    price_key = finish_key(
-        [portfolio.get_symbol_key(symbol) or symbol for symbol in portfolio.symbols]
-    )
-    meta_key = finish_key(
-        [pricing.get_symbol_prices_cache_key(symbol) for symbol in portfolio.symbols]
-    )
-    keys = [
-        hashlib.sha1(bytes(price_key, encoding="utf8")).hexdigest(),
-        hashlib.sha1(bytes(meta_key, encoding="utf8")).hexdigest(),
-    ]
-    return finish_key(
-        [
-            fn.__name__,
-            str(portfolio.user),
-        ]
-        + keys
-    )
-
-
-def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
-    return finish_key(["load-portfolio", str(user)])
-
-
-@cached(key_builder=_load_portfolio_key, cache=Cache.MEMORY)
-async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
-    meta = await load_meta()
-    user_symbols = await stock_info.load_all_symbols()
-    all_symbols = list(user_symbols.keys())
-    db = await get_db()
-    lots_raw = await db.get_lots(user)
-    lots = stocklots.parse(lots_raw)
-
-    if "FEEVEE_SYMBOLS" in os.environ:
-        filtered = os.environ["FEEVEE_SYMBOLS"].split(" ")
-        all_symbols = [s for s in all_symbols if s in filtered]
-
-    portfolio = Portfolio(user, all_symbols, lots, meta)
-    symbols_key = get_user_symbols_key(load_portfolio, portfolio, stock_info)
-    log.info(f"{user.uid:6} loading portfolio {user} {symbols_key}")
-
-    return portfolio
-
-
-def _load_stock_key(
-    fn, portfolio: Portfolio, symbol: str, stock_info: StockInfo
-) -> str:
-    return finish_key(
-        [
-            fn.__name__,
-            str(portfolio.user),
-            symbol,
-            portfolio.get_symbol_key(symbol) or symbol,
-            pricing.get_symbol_prices_cache_key(symbol),
-        ]
-    )
-
-
-@cached(key_builder=_load_stock_key, **Caching)
-async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -> Stock:
-    info = await stock_info.load_symbol_info(symbol)
-    notes = await stock_info.load_symbol_notes(symbol)
-    symbol_prices = await pricing.get_prices(symbol)
-    symbol_lots = portfolio.lots.for_symbol(symbol)
-    notes_time = notes.time()
-
-    assert info
-
-    hashing = finish_key(
-        [
-            symbol,
-            str(notes_time),
-            portfolio.get_symbol_key(symbol) or symbol,
-            pricing.get_symbol_prices_cache_key(symbol),
-            symbol_lots.lots_key,
-        ]
-    )
-
-    def get_meta(sub_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        if symbol in sub_meta:
-            return sub_meta[symbol]
-        return None
-
-    meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
-
-    version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
-    log.info(f"{symbol:6} loading stock {version} notes-time={notes_time}")
-    return Stock(
-        symbol,
-        info.symbol,
-        version,
-        symbol_prices,
-        symbol_lots,
-        notes,
-        meta,
-    )
 
 
 @dataclass
@@ -573,46 +458,6 @@ class ManageDailies(MessageHandler):
         await messages.push(RefreshChartsMessage(m.user, m.symbol))
 
 
-def get_backup_path(path: str) -> str:
-    full, extension = os.path.splitext(path)
-    dated = datetime.now().strftime("%Y-%m-%d")
-    return f"{full}-{dated}{extension}"
-
-
-async def copy_file(from_path: str, to_path: str):
-    # This is shitty but works for the files we're dealing with.
-    log.info(f"copying {from_path} -> {to_path}")
-    async with aiofiles.open(from_path, mode="r") as reading:
-        async with aiofiles.open(to_path, mode="w") as writing:
-            await writing.write(await reading.read())
-
-
-async def backup_daily_file(path: str):
-    if os.path.isfile(path):
-        backup_path = get_backup_path(path)
-        if not os.path.isfile(backup_path):
-            await copy_file(path, backup_path)
-        else:
-            log.info(f"already have {backup_path}")
-
-
-async def write_json_file(data: Any, path: str):
-    json_path = os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
-    await backup_daily_file(json_path)
-    async with aiofiles.open(json_path, mode="w") as file:
-        await file.write(json.dumps(data))
-
-
-async def is_missing(path: str) -> bool:
-    try:
-        await aiofiles.os.stat(
-            os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
-        )
-        return False
-    except FileNotFoundError:
-        return True
-
-
 @dataclass
 class ManageCandles(MessageHandler):
     financials: Financials
@@ -767,8 +612,10 @@ class RefreshQueue(MessagePublisher):
         user = await db.get_user_key_by_user_id(user_id)
 
         stock_info = StockInfo(user)
-        portfolio = await load_portfolio(user, stock_info)
-        stocks = await self.repository.get_all_stocks(user, portfolio, stock_info)
+        portfolio = await self.repository.get_portfolio(user)
+        stocks = await self.repository.get_all_stocks(
+            user, portfolio, stock_info, Criteria()
+        )
 
         return await asyncio.gather(
             self.candles.handler.service(self, portfolio, stocks),
@@ -779,22 +626,17 @@ class RefreshQueue(MessagePublisher):
 
     async def _minute(self):
         log.info(f"minute")
-        db = await get_db()
-        user_ids = await db.get_all_user_ids()
+        user_ids = await self.repository.get_all_users()
         return asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
 
     async def _user_closing(self, user_id: UserId):
-        db = await get_db()
-        user = await db.get_user_key_by_user_id(user_id)
-        stock_info = StockInfo(user)
-        portfolio = await load_portfolio(user, stock_info)
-        for symbol in portfolio.symbols:
-            await self.push(RefreshDailyMessage(user, symbol, maximum_age=0))
+        user = await self.repository.get_user(user_id)
+        portfolio = await self.repository.get_portfolio(user)
+        # TODO Refresh daily
 
     async def _closing(self):
         log.info(f"bell-closing:ding")
-        db = await get_db()
-        user_ids = await db.get_all_user_ids()
+        user_ids = await self.repository.get_all_users()
         return asyncio.gather(*[self._user_closing(user_id) for user_id in user_ids])
 
     async def _watch(self):
@@ -857,19 +699,33 @@ class RefreshQueue(MessagePublisher):
 
 @dataclass
 class SymbolRepository:
-    async def get_portfolio(self, user: UserKey, stock_info: StockInfo) -> Portfolio:
-        return await load_portfolio(user, stock_info)
+    async def get_all_users(self) -> List[UserId]:
+        db = await get_db()
+        return await db.get_all_user_ids()
+
+    async def get_user(self, uid: UserId) -> UserKey:
+        db = await get_db()
+        return await db.get_user_key_by_user_id(uid)
+
+    async def get_portfolio(self, user: UserKey) -> Portfolio:
+        meta = await load_meta()
+        db = await get_db()
+        lots_raw = await db.get_lots(user)
+        lots = stocklots.parse(lots_raw)
+        return Portfolio(user, lots, meta)
 
     async def get_all_stocks(
         self,
         user: UserKey,
         portfolio: Portfolio,
         stock_info: StockInfo,
+        criteria: Criteria,
     ) -> List[Stock]:
-        await stock_info.load()
+        db = await get_db()
+        symbols = await db.get_all_symbols(user, criteria)
         return await chunked(
             "batch-db",
-            portfolio.symbols,
+            symbols,
             lambda symbol: self.get_stock(user, symbol, portfolio, stock_info),
         )
 
@@ -880,21 +736,41 @@ class SymbolRepository:
         portfolio: Portfolio,
         stock_info: StockInfo,
     ) -> Stock:
-        return await load_stock(portfolio, symbol, stock_info)
+        info = await stock_info.load_symbol_info(symbol)
+        notes = await stock_info.load_symbol_notes(symbol)
+        symbol_prices = await pricing.get_prices(symbol)
+        symbol_lots = portfolio.lots.for_symbol(symbol)
+        notes_time = notes.time()
 
-    async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
-        stock_info = StockInfo(user)
-        db = await get_db()
-        portfolio = await self.get_portfolio(user, stock_info)
-        notes = await db.get_notes(user, symbol)
-        if len(notes) == 0 or notes[0].body != body:
-            user = await db.add_notes(
-                user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
-            )
+        assert info
 
-            # HACK This isn't updating the user in Portfolio
-            portfolio.user = user
-        return await self.get_stock(user, symbol, portfolio, stock_info)
+        hashing = finish_key(
+            [
+                symbol,
+                str(notes_time),
+                pricing.get_symbol_prices_cache_key(symbol),
+                symbol_lots.lots_key,
+            ]
+        )
+
+        def get_meta(sub_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            if symbol in sub_meta:
+                return sub_meta[symbol]
+            return None
+
+        meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
+
+        version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
+        log.info(f"{symbol:6} loading stock {version} notes-time={notes_time}")
+        return Stock(
+            symbol,
+            info.symbol,
+            version,
+            symbol_prices,
+            symbol_lots,
+            notes,
+            meta,
+        )
 
     async def add_symbols(self, user: UserKey, symbols: List[str]) -> List[str]:
         db = await get_db()
@@ -907,6 +783,20 @@ class SymbolRepository:
     async def update_lots(self, user: UserKey, lots: str) -> UserKey:
         db = await get_db()
         return await db.update_lots(user, lots)
+
+    async def save_notes(self, user: UserKey, symbol: str, noted_price: str, body: str):
+        stock_info = StockInfo(user)
+        db = await get_db()
+        portfolio = await self.get_portfolio(user)
+        notes = await db.get_notes(user, symbol)
+        if len(notes) == 0 or notes[0].body != body:
+            user = await db.add_notes(
+                user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
+            )
+
+            # HACK This isn't updating the user in Portfolio
+            portfolio.user = user
+        return await self.get_stock(user, symbol, portfolio, stock_info)
 
 
 def rounding(v: Decimal) -> Decimal:
@@ -1091,3 +981,51 @@ async def chunked(name: str, items: List[Any], fn: Callable):
 
     batched = chunked_iterable(items, size=10)
     return flatten([await assemble_batch(batch) for batch in batched])
+
+
+def get_backup_path(path: str) -> str:
+    full, extension = os.path.splitext(path)
+    dated = datetime.now().strftime("%Y-%m-%d")
+    return f"{full}-{dated}{extension}"
+
+
+async def copy_file(from_path: str, to_path: str):
+    # This is shitty but works for the files we're dealing with.
+    log.info(f"copying {from_path} -> {to_path}")
+    async with aiofiles.open(from_path, mode="r") as reading:
+        async with aiofiles.open(to_path, mode="w") as writing:
+            await writing.write(await reading.read())
+
+
+async def backup_daily_file(path: str):
+    if os.path.isfile(path):
+        backup_path = get_backup_path(path)
+        if not os.path.isfile(backup_path):
+            await copy_file(path, backup_path)
+        else:
+            log.info(f"already have {backup_path}")
+
+
+async def write_json_file(data: Any, path: str):
+    json_path = os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
+    await backup_daily_file(json_path)
+    async with aiofiles.open(json_path, mode="w") as file:
+        await file.write(json.dumps(data))
+
+
+async def is_missing(path: str) -> bool:
+    try:
+        await aiofiles.os.stat(
+            os.path.join(os.path.join(MoneyCache, charts.PriceDirectory), path)
+        )
+        return False
+    except FileNotFoundError:
+        return True
+
+
+def finish_key(parts: Sequence[str]) -> str:
+    return ",".join(parts)
+
+
+def flatten(a):
+    return [leaf for sl in a for leaf in sl]

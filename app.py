@@ -37,10 +37,9 @@ from backend import (
     finish_key,
     load_days_of_symbol_candles,
     load_symbol_prices,
-    get_user_symbols_key,
 )
 from loggers import setup_logging_queue
-from storage import UserKey, get_db
+from storage import Criteria, UserKey
 import charts
 
 
@@ -221,7 +220,6 @@ async def _render_ohlc(
     style: str,
     trading_hours_only: bool = False,
     show_last_buy: bool = False,
-    **kwargs,
 ):
     symbol = stock.symbol
     theme = get_theme(style)
@@ -374,7 +372,7 @@ class WebChartsCacheWarmer(RefreshChartsHandler):
     async def handle(self, messages: MessagePublisher, m: SymbolMessage):
         log.info(f"{m.symbol:6} web-charts:begin")
         stock_info = StockInfo(m.user)
-        portfolio = await repository.get_portfolio(m.user, stock_info)
+        portfolio = await repository.get_portfolio(m.user)
         stock = await repository.get_stock(m.user, m.symbol, portfolio, stock_info)
         for template in self.templates:
             for duration in ["3M", "12M"]:
@@ -396,8 +394,8 @@ class JSONEncoder(quart_json.JSONEncoder):
 log = logging.getLogger("feevee")
 app = cors(Quart(__name__))
 app.json_encoder = JSONEncoder
-repository = SymbolRepository()
 
+AdministratorUserId = 1
 DefaultTagPriorities = {
     "hf": 0,
     "v:noted": 0.40,
@@ -407,52 +405,40 @@ DefaultTagPriorities = {
     "slow": 1,
 }
 
+repository = SymbolRepository()
 financials = Financials()
-candles = MessageWorker(
-    ManageCandles(
-        financials,
-        tag_priorities=DefaultTagPriorities,
-    )
-)
-indicators = MessageWorker(ManageIndicators())
-dailies = MessageWorker(ManageDailies(financials, tag_priorities=DefaultTagPriorities))
 web_charts = WebChartsCacheWarmer()
-symbol_checker = MessageWorker(SymbolChecker())
 refreshing = RefreshQueue(
     repository,
-    candles,
-    dailies,
+    MessageWorker(
+        ManageCandles(
+            financials,
+            tag_priorities=DefaultTagPriorities,
+        )
+    ),
+    MessageWorker(ManageDailies(financials, tag_priorities=DefaultTagPriorities)),
     MessageWorker(web_charts, concurrency=5),
-    indicators,
-    symbol_checker,
+    MessageWorker(ManageIndicators()),
+    MessageWorker(SymbolChecker()),
 )
-AdministratorUserId = 1
 
 
 async def get_user() -> UserKey:
     await refreshing.start()
-
-    db = await get_db()
-    maybe_user = await db.get_user_key_by_user_id(AdministratorUserId)
-    assert maybe_user
-    log.debug(f"web:user: {maybe_user}")
-    return maybe_user
-
-
-@cached(key_builder=get_user_symbols_key, **Caching)
-async def get_user_symbols(portfolio: Portfolio, stock_info: StockInfo):
-    stocks = await repository.get_all_stocks(portfolio.user, portfolio, stock_info)
-    return await chunked(
-        "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
-    )
+    return await repository.get_user(AdministratorUserId)
 
 
 @app.route("/status")
 async def status():
     user = await get_user()
     stock_info = StockInfo(user)
-    portfolio = await repository.get_portfolio(user, stock_info)
-    symbols = await get_user_symbols(portfolio, stock_info)
+    portfolio = await repository.get_portfolio(user)
+    stocks = await repository.get_all_stocks(
+        portfolio.user, portfolio, stock_info, Criteria()
+    )
+    symbols = await chunked(
+        "batch-vm", stocks, lambda stock: assemble_stock_view_model(stock)
+    )
     return dict(market=dict(open=is_market_open()), symbols=[s for s in symbols if s])
 
 
@@ -474,8 +460,8 @@ async def render():
     assert user.uid == AdministratorUserId
 
     stock_info = StockInfo(user)
-    portfolio = await repository.get_portfolio(user, stock_info)
-    stocks = await repository.get_all_stocks(user, portfolio, stock_info)
+    portfolio = await repository.get_portfolio(user)
+    stocks = await repository.get_all_stocks(user, portfolio, stock_info, Criteria())
     for stock in stocks:
         await refreshing.push(RefreshChartsMessage(user, stock.symbol))
 
@@ -518,9 +504,6 @@ async def modify_lots():
     raw = await request.get_data()
     parsed: Dict[str, str] = json.loads(raw)
     lots_text = parsed["lots"]
-
-    log.info(f"lots: {lots_text}")
-
     await repository.update_lots(user, lots_text)
 
     return dict()
@@ -530,8 +513,8 @@ async def modify_lots():
 async def refresh_symbols():
     user = await get_user()
     stock_info = StockInfo(user)
-    portfolio = await repository.get_portfolio(user, stock_info)
-    stocks = await repository.get_all_stocks(user, portfolio, stock_info)
+    portfolio = await repository.get_portfolio(user)
+    stocks = await repository.get_all_stocks(user, portfolio, stock_info, Criteria())
     for stock in stocks:
         await _basic_refresh(user, stock.symbol)
 
@@ -557,7 +540,7 @@ def parse_options() -> List[str]:
 async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
     user = await get_user()
     stock_info = StockInfo(user)
-    portfolio = await repository.get_portfolio(user, stock_info)
+    portfolio = await repository.get_portfolio(user)
     stock = await repository.get_stock(user, symbol, portfolio, stock_info)
     await web_charts.include_template(w, h, theme)
     return await render_ohlc(stock, duration, w, h, theme, parse_options())
@@ -567,7 +550,7 @@ async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
 async def notes(symbol: str):
     user = await get_user()
     stock_info = StockInfo(user)
-    portfolio = await repository.get_portfolio(user, stock_info)
+    portfolio = await repository.get_portfolio(user)
     raw = await request.get_data()
     parsed = json.loads(raw)
     stock = await repository.get_stock(user, symbol, portfolio, stock_info)
