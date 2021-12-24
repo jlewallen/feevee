@@ -386,7 +386,7 @@ class Financials:
         for index, row in incoming.iterrows():
             if index in df.index:
                 continue
-            log.debug(f"{symbol:6} financials:new")
+            log.debug(f"{symbol:6} financials:new {index}")
             df = df.append(row)
 
         size_after = len(df.index)
@@ -945,7 +945,7 @@ def parse_candles(
     assert len(l) == length
     assert len(v) == length
 
-    datetimes = [datetime.fromtimestamp(value) for value in t]
+    datetimes = [datetime.fromtimestamp(value, tz=charts.ZoneUTC) for value in t]
 
     candles = [
         Candle(

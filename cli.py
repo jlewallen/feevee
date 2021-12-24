@@ -123,6 +123,7 @@ async def main():
     parser = argparse.ArgumentParser(description="feevee cli tool")
     parser.add_argument("--prices", action="store_true", default=False)
     parser.add_argument("--options", action="store_true", default=False)
+    parser.add_argument("--append", action="store_true", default=False)
     args = parser.parse_args()
 
     repository = SymbolRepository()
@@ -149,8 +150,6 @@ async def main():
             Criteria(),
         )
 
-        await get_earnings_calendar()
-
         today = datetime.now().replace(minute=0, second=0)
         today_str = (
             today.strftime("%Y%m%d") if False else today.strftime("%Y%m%d_%H%M%S")
@@ -163,13 +162,13 @@ async def main():
                 daily_path = os.path.join(
                     MoneyCache, get_relative_daily_prices_path(stock.symbol)
                 )
-                if not os.path.isfile(daily_path):
+                if not os.path.isfile(daily_path) or args.append:
                     await financials.query(stock.symbol, daily_path, False)
 
                 intraday_path = os.path.join(
                     MoneyCache, get_relative_intraday_prices_path(stock.symbol)
                 )
-                if not os.path.isfile(intraday_path):
+                if not os.path.isfile(intraday_path) or args.append:
                     await financials.query(stock.symbol, intraday_path, True)
 
             if args.options and stock.info and stock.info.options:

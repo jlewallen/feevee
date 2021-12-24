@@ -198,14 +198,7 @@ def decimal_from_value(value):
 
 
 def datetime_from_value(value):
-    if ":" in value:
-        return (
-            datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-            .replace(tzinfo=ZoneUTC)
-            .astimezone(ZoneEastern)
-            .replace(tzinfo=None)
-        )
-    return datetime.strptime(value, "%Y-%m-%d")
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
 
 
 CsvConverters = {
@@ -223,7 +216,7 @@ async def write_prices_csv(path: str, df: DataFrame):
         df = df.dropna()
         if df.isnull().any(axis=1).sum() > 0:
             raise Exception(f"writing null rows: {path}")
-    csv_data = df.to_csv()
+    csv_data = df.to_csv(date_format="%Y-%m-%dT%H:%M:%S%z")
     if len(csv_data) == 0:
         raise Exception(f"writing empty csv: {path}")
     async with aiofiles.open(path, mode="w") as f:
