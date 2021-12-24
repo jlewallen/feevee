@@ -1,12 +1,10 @@
 #!env/bin/python3
 
-import logging, asyncio, os, aiofiles.os, json
+import logging, asyncio, aiofiles.os, os, json
 import QuantLib as ql
 import matplotlib.pyplot as plt
 import finnhub
 import argparse
-from pytz import timezone
-from time import mktime
 from dateutil.relativedelta import relativedelta
 from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
@@ -14,12 +12,11 @@ from backend import (
     MoneyCache,
     StockInfo,
     SymbolRepository,
-    is_missing,
-    write_json_file,
     Financials,
 )
 from charts import get_relative_daily_prices_path, get_relative_intraday_prices_path
 from storage import Criteria, UserKey, get_db
+from utils import is_missing, write_json_file
 
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
 throttler: Throttler = Throttler(rate_limit=10, period=60)

@@ -13,9 +13,7 @@ import logging, json, re
 from backend import (
     CheckSymbolMessage,
     Financials,
-    Portfolio,
     StockInfo,
-    chunked,
     ManageCandles,
     ManageDailies,
     ManageIndicators,
@@ -33,13 +31,12 @@ from backend import (
     SymbolRepository,
     RefreshQueue,
     Stock,
-    is_market_open,
-    finish_key,
     load_days_of_symbol_candles,
     load_symbol_prices,
 )
 from loggers import setup_logging_queue
 from storage import Criteria, UserKey
+from utils import chunked, finish_key, is_market_open
 import charts
 
 

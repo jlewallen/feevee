@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from decimal import Decimal
 from pandas.core.frame import DataFrame
 from charts import read_prices_csv_sync
+from utils import is_market_open
 import logging, asyncio, concurrent.futures, re, os
 import archive, charts
 
@@ -50,10 +51,11 @@ class SymbolPrices:
 
     @property
     def price(self) -> Optional[BasicPrice]:
-        if self.daily_end and self.candle:
-            if self.daily_end.time.date() == self.candle.time.date():
-                return self.daily_end
-        return self.candle or self.daily_end
+        if is_market_open():
+            if self.daily_end and self.candle:
+                if self.candle.time > self.daily_end.time:
+                    return self.candle
+        return self.daily_end
 
     @property
     def key(self) -> Optional[str]:

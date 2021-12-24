@@ -5,7 +5,7 @@ from pandas import DataFrame, Series, read_csv
 from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 from pytz import timezone
-
+from utils import PriceDirectory
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -23,7 +23,6 @@ DailyHighColumn = "high"
 DailyLowColumn = "low"
 DailyCloseColumn = "close"
 DailyVolumeColumn = "volume"
-PriceDirectory = ".prices"
 
 
 @dataclass
@@ -123,11 +122,8 @@ class Prices:
         highs = self.daily[DailyHighColumn]
         return (lows.min(), highs.max())
 
-    def volume_column(self) -> str:
-        return DailyVolumeColumn
-
     def volume_range(self) -> Tuple[Decimal, Decimal]:
-        vols = self.daily[self.volume_column()]
+        vols = self.daily[DailyVolumeColumn]
         return (vols.min(), vols.max())
 
     def within_range(self, v: Decimal) -> bool:
@@ -153,7 +149,7 @@ class Prices:
         sliced = self.daily[start:end]  # type: ignore
         return Prices(self.symbol, sliced)
 
-    def price_at(self, ts: Optional[datetime] = None) -> MarketPrice:
+    def _price_at(self, ts: Optional[datetime] = None) -> MarketPrice:
         assert ts
         ts = ts if ts else datetime.today()
         sliced = self.daily[ts:]  # type: ignore
@@ -182,7 +178,7 @@ class Prices:
 
     @property
     def volume(self) -> pd.Series:
-        return self.daily[self.volume_column()]
+        return self.daily[DailyVolumeColumn]
 
 
 def get_relative_intraday_prices_path(symbol: str) -> str:
@@ -383,7 +379,7 @@ def _render_ohlc(
     if include_volume:
         volume = go.Bar(
             x=prices.daily.index,
-            y=prices.daily[prices.volume_column()],
+            y=prices.daily[DailyVolumeColumn],
             visible=True,
             showlegend=False,
             name=title,
