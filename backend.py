@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from aiocache import cached, Cache
 from aiocache.serializers import PickleSerializer
 import pandas
-from storage import get_db, UserKey, SymbolRow, NoteRow, UserId
+from storage import Criteria, UserSymbol, get_db, UserKey, SymbolRow, NoteRow, UserId
 from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -159,47 +159,39 @@ async def load_meta() -> Dict[str, Dict[str, Any]]:
 @dataclass
 class StockInfo:
     user: UserKey
-    all_symbols: Optional[Dict[str, SymbolRow]] = None
-    all_notes: Optional[Dict[str, List[NoteRow]]] = None
+    criteria: Criteria = field(default_factory=Criteria)
+    all_symbols: Optional[Dict[str, UserSymbol]] = None
 
     async def load(self):
         await self.load_all_symbols()
-        await self.load_all_notes()
 
-    async def load_all_symbols(self) -> Dict[str, SymbolRow]:
+    async def load_all_symbols(self) -> Dict[str, UserSymbol]:
         if self.all_symbols is None:
             db = await get_db()
-            self.all_symbols = await db.get_all_symbols(self.user)
+            self.all_symbols = await db.get_all_symbols(self.user, self.criteria)
         return self.all_symbols
 
-    async def load_all_notes(self) -> Dict[str, List[NoteRow]]:
-        if self.all_notes is None:
-            db = await get_db()
-            self.all_notes = await db.get_all_notes(self.user)
-        return self.all_notes
-
-    async def load_symbol_info(self, symbol: str) -> Optional[SymbolRow]:
+    async def load_symbol_info(self, symbol: str) -> Optional[UserSymbol]:
         all_symbols = await self.load_all_symbols()
         if symbol in all_symbols:
             return all_symbols[symbol]
         return None
 
-    async def _parse_symbol_notes(self, rows: List[NoteRow]) -> Notes:
-        if len(rows) == 0:
-            return Notes()
-        tags_pattern = re.compile("#\s*(\S+)")
-        tags_match = tags_pattern.findall(rows[0].body)
-        prices_pattern = re.compile("@\s*(\S+)")
-        prices_match = prices_pattern.findall(rows[0].body)
-        prices = [Decimal(m) for m in prices_match]
-        notes = [row.body for row in rows]
-        return Notes(rows, notes, tags_match, prices)
-
     async def load_symbol_notes(self, symbol: str) -> Notes:
-        all_notes = await self.load_all_notes()
-        if symbol in all_notes:
-            return await self._parse_symbol_notes(all_notes[symbol])
+        all_symbols = await self.load_all_symbols()
+        if symbol in all_symbols:
+            user_symbol = all_symbols[symbol]
+            if user_symbol.note:
+                return await self._parse_symbol_notes(user_symbol.note)
         return Notes()
+
+    async def _parse_symbol_notes(self, row: NoteRow) -> Notes:
+        tags_pattern = re.compile("#\s*(\S+)")
+        tags_match = tags_pattern.findall(row.body)
+        prices_pattern = re.compile("@\s*(\S+)")
+        prices_match = prices_pattern.findall(row.body)
+        prices = [Decimal(m) for m in prices_match]
+        return Notes([row], [row.body], tags_match, prices)
 
 
 def get_user_symbols_key(fn, portfolio: Portfolio, stock_info: StockInfo) -> str:
@@ -230,7 +222,7 @@ def _load_portfolio_key(fn, user: UserKey, stock_info: StockInfo) -> str:
 async def load_portfolio(user: UserKey, stock_info: StockInfo) -> Portfolio:
     meta = await load_meta()
     user_symbols = await stock_info.load_all_symbols()
-    all_symbols = [row.symbol for row in user_symbols.values()]
+    all_symbols = list(user_symbols.keys())
     db = await get_db()
     lots_raw = await db.get_lots(user)
     lots = stocklots.parse(lots_raw)
@@ -267,6 +259,9 @@ async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -
     symbol_prices = await pricing.get_prices(symbol)
     symbol_lots = portfolio.lots.for_symbol(symbol)
     notes_time = notes.time()
+
+    assert info
+
     hashing = finish_key(
         [
             symbol,
@@ -288,7 +283,7 @@ async def load_stock(portfolio: Portfolio, symbol: str, stock_info: StockInfo) -
     log.info(f"{symbol:6} loading stock {version} notes-time={notes_time}")
     return Stock(
         symbol,
-        info,
+        info.symbol,
         version,
         symbol_prices,
         symbol_lots,

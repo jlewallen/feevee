@@ -11,6 +11,11 @@ UserId = int
 
 
 @dataclass
+class Criteria:
+    page: Optional[int] = None
+
+
+@dataclass
 class UserKey:
     uid: UserId
     modified: datetime
@@ -47,6 +52,12 @@ class NoteRow:
     noted_price: Decimal
     future_price: Optional[Decimal]
     body: str
+
+
+@dataclass
+class UserSymbol:
+    symbol: SymbolRow
+    note: Optional[NoteRow]
 
 
 @dataclass
@@ -124,8 +135,35 @@ class SymbolStorage:
         dbc = await self.db.execute("SELECT id FROM users")
         return [row[0] for row in await dbc.fetchall()]
 
-    async def get_all_symbols(self, user_key: UserKey) -> Dict[str, SymbolRow]:
+    async def _get_all_notes(self, user_key: UserKey) -> Dict[str, NoteRow]:
         assert self.db
+        notes = {}
+        dbc = await self.db.execute(
+            "SELECT symbol, created, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY created DESC",
+            [user_key.uid],
+        )
+        for row in await dbc.fetchall():
+            symbol = row[0]
+            if symbol in notes:
+                continue
+
+            note_row = NoteRow(
+                symbol,
+                self._parse_datetime(row[1]),
+                Decimal(row[2]),
+                Decimal(row[3]) if row[3] else None,
+                row[4],
+            )
+            notes[symbol] = note_row
+        return notes
+
+    async def get_all_symbols(
+        self, user_key: UserKey, criteria: Criteria
+    ) -> Dict[str, UserSymbol]:
+        assert self.db
+
+        notes = await self._get_all_notes(user_key)
+
         dbc = await self.db.execute(
             """
             SELECT symbol, modified, earnings, candles, options, data
@@ -135,29 +173,22 @@ class SymbolStorage:
             """,
             [user_key.uid],
         )
+
         rows = await dbc.fetchall()
-        return {
+        if criteria.page:
+            rows = list(rows)
+            rows = rows[criteria.page * 10 : criteria.page * 10 + 10]
+
+        symbols = {
             row[0]: SymbolRow(
                 row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
             )
             for row in rows
         }
 
-    async def has_symbol(self, symbol: str):
-        assert self.db
-        return self.get_symbol(symbol) is not None
-
-    async def get_symbol(self, symbol: str):
-        assert self.db
-        dbc = await self.db.execute(
-            "SELECT symbol, modified, earnings, candles, options, data FROM symbols WHERE safe AND symbol = ?",
-            [symbol],
-        )
-        for row in await dbc.fetchall():
-            return SymbolRow(
-                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
-            )
-        return None
+        return {
+            key: UserSymbol(value, notes.get(key)) for key, value in symbols.items()
+        }
 
     async def add_symbols(self, user_key: UserKey, symbols: List[str]) -> List[str]:
         assert self.db
@@ -220,58 +251,6 @@ class SymbolStorage:
         )
         await self.db.commit()
 
-    async def get_notes(self, user_key: UserKey, symbol: str):
-        assert self.db
-        notes = []
-        dbc = await self.db.execute(
-            "SELECT created, noted_price, future_price, body FROM notes WHERE user_id = ? AND symbol = ? ORDER BY created DESC LIMIT 1",
-            [user_key.uid, symbol],
-        )
-        for row in await dbc.fetchall():
-            notes.append(
-                NoteRow(
-                    symbol,
-                    self._parse_datetime(row[0]),
-                    Decimal(row[1]),
-                    Decimal(row[2]) if row[2] else None,
-                    row[3],
-                )
-            )
-        return notes
-
-    async def _get_user_symbol_keys(self, user_id: int) -> Dict[str, datetime]:
-        assert self.db
-        keys = {}
-        dbc = await self.db.execute(
-            "SELECT symbol, MAX(notes.created) AS key FROM notes WHERE user_id = ? GROUP BY symbol",
-            [user_id],
-        )
-        for row in await dbc.fetchall():
-            keys[row[0]] = self._parse_datetime(row[1])
-        return keys
-
-    async def get_all_notes(self, user_key: UserKey) -> Dict[str, List[NoteRow]]:
-        assert self.db
-        notes = {}
-        dbc = await self.db.execute(
-            "SELECT symbol, created, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY created DESC",
-            [user_key.uid],
-        )
-        for row in await dbc.fetchall():
-            symbol = row[0]
-            if symbol in notes:
-                continue
-
-            note_row = NoteRow(
-                symbol,
-                self._parse_datetime(row[1]),
-                Decimal(row[2]),
-                Decimal(row[3]) if row[3] else None,
-                row[4],
-            )
-            notes[symbol] = [note_row]
-        return notes
-
     async def update_lots(self, user_key: UserKey, lots: str):
         assert self.db
         await self.db.execute(
@@ -332,6 +311,17 @@ class SymbolStorage:
         await self.db.commit()
 
         return updated_user_key
+
+    async def _get_user_symbol_keys(self, user_id: int) -> Dict[str, datetime]:
+        assert self.db
+        keys = {}
+        dbc = await self.db.execute(
+            "SELECT symbol, MAX(notes.created) AS key FROM notes WHERE user_id = ? GROUP BY symbol",
+            [user_id],
+        )
+        for row in await dbc.fetchall():
+            keys[row[0]] = self._parse_datetime(row[1])
+        return keys
 
     async def _user_modified(self, user_key: UserKey):
         assert self.db
