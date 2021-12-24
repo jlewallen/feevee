@@ -135,7 +135,10 @@
                 <span class="options-chain">
                     <a :href="optionsChainUrl" target="_blank">chain</a>
                 </span>
-                <span class="options-chain" v-if="expanded">
+                <span class="sc-gallery">
+                    <a :href="stockChartsGalleryUrl" target="_blank">scg</a>
+                </span>
+                <span class="refresh-link" v-if="expanded">
                     <a href="#" v-on:click.prevent="onRefresh">refresh</a>
                 </span>
                 <span class="tag" v-for="tag in visible.tags" v-bind:key="tag">
@@ -256,6 +259,9 @@ export default {
         },
         stockChartsUrl() {
             return `https://stockcharts.com/acp/?s=${this.symbol}`;
+        },
+        stockChartsGalleryUrl() {
+            return `https://stockcharts.com/freecharts/gallery.html?${this.symbol}`;
         },
         fidelityUrl() {
             return `https://digital.fidelity.com/prgw/digital/research/quote/dashboard?symbol=${this.symbol}`;

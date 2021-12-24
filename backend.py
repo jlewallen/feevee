@@ -577,9 +577,7 @@ class RefreshQueue(MessagePublisher):
 
     async def _user_minute(self, user_id: UserId):
         db = await get_db()
-
         user = await db.get_user_key_by_user_id(user_id)
-
         stock_info = StockInfo(user)
         portfolio = await self.repository.get_portfolio(user)
         stocks = await self.repository.get_all_stocks(
