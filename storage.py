@@ -12,6 +12,7 @@ UserId = int
 
 @dataclass
 class Criteria:
+    symbol: Optional[str] = None
     page: Optional[int] = None
 
 
@@ -49,15 +50,13 @@ class SymbolRow:
 class NoteRow:
     symbol: str
     ts: datetime
-    noted_price: Decimal
-    future_price: Optional[Decimal]
     body: str
 
 
 @dataclass
 class UserSymbol:
     symbol: SymbolRow
-    note: Optional[NoteRow]
+    notes: Optional[NoteRow]
 
 
 @dataclass
@@ -101,10 +100,10 @@ class SymbolStorage:
         )
 
         await self.db.execute(
-            "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), symbol TEXT NOT NULL, created DATETIME NOT NULL, noted_price DECIMAL(10, 5) NOT NULL, future_price DECIMAL(10, 5), body TEXT NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), symbol TEXT NOT NULL, modified DATETIME NOT NULL, noted_price DECIMAL(10, 5) NOT NULL, future_price DECIMAL(10, 5), body TEXT NOT NULL)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS notes_symbol_ts_idx ON notes (user_id, symbol, created)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS notes_idx ON notes (user_id, symbol)"
         )
         await self.db.commit()
 
@@ -114,15 +113,16 @@ class SymbolStorage:
 
     async def get_user_key_by_user_id(self, user_id: int) -> UserKey:
         assert self.db
-        symbol_keys = await self._get_user_symbol_keys(user_id)
         dbc = await self.db.execute(
             """
-            SELECT users.id, users.modified, MAX(notes.created) AS notes_modified
-            FROM users LEFT JOIN notes ON (users.id = notes.user_id) WHERE users.id = ?
-            GROUP BY users.id, users.modified
+            SELECT u.id, u.modified, MAX(n.modified) AS notes_modified
+            FROM users AS u LEFT JOIN notes AS n ON (u.id = n.user_id)
+            WHERE u.id = ?
+            GROUP BY u.id, u.modified
             """,
             [user_id],
         )
+        symbol_keys = await self._get_user_symbol_keys(user_id)
         found = [
             UserKey(row[0], self._parse_datetime(row[1]), symbol_keys)
             for row in await dbc.fetchall()
@@ -135,11 +135,11 @@ class SymbolStorage:
         dbc = await self.db.execute("SELECT id FROM users")
         return [row[0] for row in await dbc.fetchall()]
 
-    async def _get_all_notes(self, user_key: UserKey) -> Dict[str, NoteRow]:
+    async def get_all_notes(self, user_key: UserKey) -> Dict[str, NoteRow]:
         assert self.db
         notes = {}
         dbc = await self.db.execute(
-            "SELECT symbol, created, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY created DESC",
+            "SELECT symbol, modified, noted_price, future_price, body FROM notes WHERE user_id = ? ORDER BY modified DESC",
             [user_key.uid],
         )
         for row in await dbc.fetchall():
@@ -150,8 +150,6 @@ class SymbolStorage:
             note_row = NoteRow(
                 symbol,
                 self._parse_datetime(row[1]),
-                Decimal(row[2]),
-                Decimal(row[3]) if row[3] else None,
                 row[4],
             )
             notes[symbol] = note_row
@@ -164,34 +162,49 @@ class SymbolStorage:
 
         dbc = await self.db.execute(
             """
-            SELECT symbol, modified, earnings, candles, options, data
-            FROM symbols
-            WHERE safe AND symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?)
-            ORDER BY symbol
+            SELECT s.symbol, s.modified, s.earnings, s.candles, s.options, s.data, notes.modified, notes.body AS notes
+            FROM symbols AS s
+            LEFT JOIN notes ON (s.symbol = notes.symbol)
+            WHERE s.safe AND s.symbol IN (SELECT symbol FROM user_symbol WHERE user_id = ?)
+            AND (? is NULL OR s.symbol = ?)
+            ORDER BY s.symbol
             """,
-            [user_key.uid],
+            [user_key.uid, criteria.symbol, criteria.symbol],
         )
 
         rows = await dbc.fetchall()
+
         if criteria.page:
             rows = list(rows)
             rows = rows[criteria.page * 10 : criteria.page * 10 + 10]
 
         symbols = {
-            row[0]: SymbolRow(
-                row[0], self._parse_datetime(row[1]), row[2], row[3], row[4], row[5]
+            row[0]: UserSymbol(
+                SymbolRow(
+                    row[0],
+                    self._parse_datetime(row[1]),
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                ),
+                NoteRow(
+                    row[0],
+                    self._parse_datetime(row[6]),
+                    row[7],
+                )
+                if row[6]
+                else None,
             )
             for row in rows
         }
-
-        notes = await self._get_all_notes(user_key)
 
         filtering: Optional[List[str]] = None
         if "FEEVEE_SYMBOLS" in os.environ:
             filtering = os.environ["FEEVEE_SYMBOLS"].split(" ")
 
         return {
-            key: UserSymbol(value, notes.get(key))
+            key: value
             for key, value in symbols.items()
             if filtering is None or key in filtering
         }
@@ -249,12 +262,13 @@ class SymbolStorage:
         log.info(f"{serialized}")
         await self.db.execute(
             """
-        INSERT INTO symbols (symbol, modified, candles, options, earnings, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol) DO UPDATE
-        SET modified = excluded.modified, safe = excluded.safe, data = excluded.data
-  """,
+            INSERT INTO symbols (symbol, modified, candles, options, earnings, safe, data) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE
+            SET modified = excluded.modified, safe = excluded.safe, data = excluded.data
+            """,
             [symbol, datetime.now(), True, False, False, safe, serialized],
         )
+
         await self.db.commit()
 
     async def update_lots(self, user_key: UserKey, lots: str):
@@ -294,18 +308,23 @@ class SymbolStorage:
         self,
         user_key: UserKey,
         symbol: str,
-        created: datetime,
+        modified: datetime,
         noted_price: Decimal,
         future_price: Optional[Decimal],
         body: str,
     ):
         assert self.db
         await self.db.execute(
-            "INSERT INTO notes (user_id, symbol, created, noted_price, future_price, body) VALUES (?, ?, ?, ?, ?, ?)",
+            """
+            INSERT INTO notes (user_id, symbol, modified, noted_price, future_price, body)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, symbol) DO UPDATE
+            SET modified = excluded.modified, noted_price = excluded.noted_price, future_price = excluded.future_price, body = excluded.body
+            """,
             [
                 user_key.uid,
                 symbol,
-                created,
+                modified,
                 str(noted_price),
                 str(future_price) if future_price else None,
                 body,
@@ -322,7 +341,12 @@ class SymbolStorage:
         assert self.db
         keys = {}
         dbc = await self.db.execute(
-            "SELECT symbol, MAX(notes.created) AS key FROM notes WHERE user_id = ? GROUP BY symbol",
+            """
+            SELECT symbol, MAX(notes.modified) AS key
+            FROM notes
+            WHERE user_id = ?
+            GROUP BY symbol
+            """,
             [user_id],
         )
         for row in await dbc.fetchall():

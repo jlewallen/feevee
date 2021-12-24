@@ -198,14 +198,14 @@ async def assemble_stock_view_model(stock: Stock):
         freshness=freshness,
         notes=[
             dict(
-                symbol=n.symbol,
-                ts=n.ts,
-                noted_price=n.noted_price,
-                future_price=n.future_price,
+                symbol=stock.symbol,
+                ts=n.time,
                 body=n.body,
             )
-            for n in stock.notes.rows
-        ],
+            for n in [stock.notes]
+        ]
+        if stock.notes
+        else [],
     )
 
 
@@ -536,7 +536,7 @@ def parse_options() -> List[str]:
 @app.route("/symbols/<symbol>/ohlc/<duration>/<int:w>/<int:h>/<theme>")
 async def get_chart(symbol: str, duration: str, w: int, h: int, theme: str):
     user = await get_user()
-    stock_info = StockInfo(user)
+    stock_info = StockInfo(user, Criteria(symbol))
     portfolio = await repository.get_portfolio(user)
     stock = await repository.get_stock(user, symbol, portfolio, stock_info)
     await web_charts.include_template(w, h, theme)

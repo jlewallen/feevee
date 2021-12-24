@@ -68,15 +68,10 @@ class Portfolio:
 
 @dataclass
 class Notes:
-    rows: List[NoteRow] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    time: Optional[datetime] = None
+    body: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     prices: List[Decimal] = field(default_factory=list)
-
-    def time(self) -> Optional[float]:
-        if self.rows:
-            return self.rows[0].ts.timestamp()
-        return None
 
 
 @dataclass
@@ -136,20 +131,19 @@ class StockInfo:
         return all_symbols[symbol]
 
     async def load_symbol_notes(self, symbol: str) -> Notes:
-        all_symbols = await self.load_all_symbols()
-        if symbol in all_symbols:
-            user_symbol = all_symbols[symbol]
-            if user_symbol.note:
-                return await self._parse_symbol_notes(user_symbol.note)
-        return Notes()
+        user_symbol = await self.load_symbol_info(symbol)
+        if user_symbol.notes:
+            return await self._parse_symbol_notes(user_symbol)
+        return Notes(None, None)
 
-    async def _parse_symbol_notes(self, row: NoteRow) -> Notes:
+    async def _parse_symbol_notes(self, info: UserSymbol) -> Notes:
+        assert info.notes
         tags_pattern = re.compile("#\s*(\S+)")
-        tags_match = tags_pattern.findall(row.body)
+        tags_match = tags_pattern.findall(info.notes.body)
         prices_pattern = re.compile("@\s*(\S+)")
-        prices_match = prices_pattern.findall(row.body)
+        prices_match = prices_pattern.findall(info.notes.body)
         prices = [Decimal(m) for m in prices_match]
-        return Notes([row], [row.body], tags_match, prices)
+        return Notes(info.notes.ts, info.notes.body, tags_match, prices)
 
 
 @dataclass
@@ -682,6 +676,7 @@ class SymbolRepository:
         db = await get_db()
         return await db.get_user_key_by_user_id(uid)
 
+    @cached(ttl=1, cache=Cache.MEMORY)
     async def get_portfolio(self, user: UserKey) -> Portfolio:
         meta = await load_meta()
         db = await get_db()
@@ -715,14 +710,13 @@ class SymbolRepository:
         notes = await stock_info.load_symbol_notes(symbol)
         symbol_prices = await pricing.get_prices(symbol)
         symbol_lots = portfolio.lots.for_symbol(symbol)
-        notes_time = notes.time()
 
         assert info
 
         hashing = finish_key(
             [
                 symbol,
-                str(notes_time),
+                str(notes.time),
                 pricing.get_symbol_prices_cache_key(symbol),
                 symbol_lots.lots_key,
             ]
@@ -736,7 +730,7 @@ class SymbolRepository:
         meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
 
         version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
-        log.info(f"{symbol:6} loading stock {version} notes-time={notes_time}")
+        log.info(f"{symbol:6} loading stock {version} notes-time={notes.time}")
         return Stock(
             symbol,
             info.symbol,
@@ -763,12 +757,13 @@ class SymbolRepository:
         stock_info = StockInfo(user)
         db = await get_db()
         portfolio = await self.get_portfolio(user)
-        notes = await db.get_notes(user, symbol)
-        if len(notes) == 0 or notes[0].body != body:
+        checking = await db.get_all_symbols(user, Criteria(symbol))
+        assert checking
+        curr = checking[symbol]
+        if curr.notes is None or curr.notes.body != body:
             user = await db.add_notes(
                 user, symbol, datetime.utcnow(), Decimal(noted_price), None, body
             )
-
             # HACK This isn't updating the user in Portfolio
             portfolio.user = user
         return await self.get_stock(user, symbol, portfolio, stock_info)
