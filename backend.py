@@ -592,9 +592,12 @@ class RefreshQueue(MessagePublisher):
         )
 
     async def _minute(self):
-        log.info(f"minute")
+        started = datetime.utcnow()
+        log.debug(f"minute")
         user_ids = await self.repository.get_all_users()
-        return asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
+        await asyncio.gather(*[self._user_minute(user_id) for user_id in user_ids])
+        elapsed = datetime.utcnow() - started
+        log.info(f"minute elapsed={elapsed}")
 
     async def _user_closing(self, user_id: UserId):
         user = await self.repository.get_user(user_id)
