@@ -64,15 +64,7 @@ class SymbolPrices:
 
     @property
     def previous_close(self) -> Optional[BasicPrice]:
-        daily_end = self.daily_end
-        daily_previous = self.daily_previous
-        candle = self.candle
-
-        if candle and daily_end:
-            if candle.time.date() > daily_end.time.date():
-                return daily_end
-
-        return daily_previous
+        return self.daily_previous
 
     def price_change(self) -> Optional[Decimal]:
         price = self.price
