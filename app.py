@@ -283,6 +283,9 @@ async def load_months_of_symbol_prices(symbol: str, months: int, options: List[s
             prices.daily["S:MACD-Signal"] = (
                 prices.daily["S:MACD"].ewm(span=9, adjust=False).mean()
             )
+            prices.daily["H:MACD"] = (
+                prices.daily["S:MACD"] - prices.daily["S:MACD-Signal"]
+            )
 
         if option == "ADI":
             high = prices.high.astype(float)

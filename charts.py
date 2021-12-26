@@ -344,6 +344,23 @@ def _render_ohlc(
     include_volume = True
 
     for series in prices.daily:
+        if series.startswith("H:"):
+            volume = go.Bar(
+                x=prices.daily.index,
+                y=prices.daily[series],
+                visible=True,
+                showlegend=False,
+                name=title,
+                xaxis="x",
+                yaxis="y",
+                marker_color=colors.volume,
+                opacity=0.25,
+            )
+
+            fig.add_trace(volume)
+
+            include_volume = False
+
         if series.startswith("S:"):
             style = colors.signals[series]
             signal_trace = go.Scatter(
