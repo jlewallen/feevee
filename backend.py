@@ -714,11 +714,13 @@ class SymbolRepository:
 
         assert info
 
+        prices_key = pricing.get_symbol_prices_cache_key(symbol)
+
         hashing = finish_key(
             [
                 symbol,
                 str(notes.time),
-                pricing.get_symbol_prices_cache_key(symbol),
+                prices_key,
                 symbol_lots.lots_key,
             ]
         )
@@ -731,7 +733,9 @@ class SymbolRepository:
         meta = {key: get_meta(sm) for key, sm in portfolio.meta.items()}
 
         version = hashlib.sha1(bytes(hashing, encoding="utf8")).hexdigest()
-        log.info(f"{symbol:6} loading stock {version} notes-time={notes.time}")
+        log.info(
+            f"{symbol:6} loading stock {version} notes-time={notes.time} prices-key={prices_key}"
+        )
         return Stock(
             symbol,
             info.symbol,
