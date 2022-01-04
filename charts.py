@@ -93,7 +93,7 @@ class Prices:
     daily: DataFrame
 
     def market_hours_only(self) -> "Prices":
-        filtered = self.daily.between_time("9:30", "16:00")
+        filtered = self.daily.between_time("14:30", "21:00")
         log.info(
             f"{self.symbol:6} prices:market-hours before={len(self.daily.index)} filtered={len(filtered.index)}"
         )
@@ -469,7 +469,7 @@ def _render_ohlc(
         date_range = prices.date_range()
         range_delta = date_range[1] - date_range[0]
         trading_today = date_range[1].replace(
-            hour=9, minute=30, second=0, microsecond=0
+            hour=14, minute=30, second=0, microsecond=0
         )
         days_in_range = int(range_delta.days)
         tick_values = [
@@ -487,7 +487,7 @@ def _render_ohlc(
         fig.update_xaxes(
             rangebreaks=[
                 dict(bounds=["sat", "mon"]),
-                dict(bounds=[16, 9.5], pattern="hour"),
+                dict(bounds=[21, 14.5], pattern="hour"),
             ],
         )
 
