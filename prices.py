@@ -64,6 +64,9 @@ class SymbolPrices:
 
     @property
     def previous_close(self) -> Optional[BasicPrice]:
+        if is_market_open():
+            if self.daily_end and self.candle:
+                return self.daily_end
         return self.daily_previous
 
     def price_change(self) -> Optional[Decimal]:
