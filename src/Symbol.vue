@@ -28,7 +28,7 @@
                     }"
                     v-if="visible.price"
                 >
-                    ${{ visible.price }}
+                    <a :href="fidelityUrl" target="_blank">${{ visible.price }}</a>
                 </span>
                 <span class="basis" v-if="visible.position">
                     <span class="units">B</span>
