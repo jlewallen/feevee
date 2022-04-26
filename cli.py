@@ -1,10 +1,9 @@
 #!env/bin/python3
 
-import logging, asyncio, aiofiles.os, os, json
+import logging, asyncio, aiofiles.os, os, json, time, argparse
 import QuantLib as ql
 import matplotlib.pyplot as plt
 import finnhub
-import argparse
 from dateutil.relativedelta import relativedelta
 from asyncio_throttle import Throttler  # type: ignore
 from datetime import datetime, timedelta
@@ -119,6 +118,7 @@ async def price_option():
 async def main():
     parser = argparse.ArgumentParser(description="feevee cli tool")
     parser.add_argument("--prices", action="store_true", default=False)
+    parser.add_argument("--daily", action="store_true", default=False)
     parser.add_argument("--options", action="store_true", default=False)
     parser.add_argument("--append", action="store_true", default=False)
     args = parser.parse_args()
@@ -155,28 +155,32 @@ async def main():
         financials = Financials()
 
         for stock in stocks:
-            if args.prices:
-                daily_path = os.path.join(
-                    MoneyCache, get_relative_daily_prices_path(stock.symbol)
-                )
-                if not os.path.isfile(daily_path) or args.append:
-                    await financials.query(stock.symbol, daily_path, False)
+            try:
+                if args.prices:
+                    daily_path = os.path.join(
+                        MoneyCache, get_relative_daily_prices_path(stock.symbol)
+                    )
+                    if not os.path.isfile(daily_path) or args.daily:
+                        await financials.query(stock.symbol, daily_path, False)
 
-                intraday_path = os.path.join(
-                    MoneyCache, get_relative_intraday_prices_path(stock.symbol)
-                )
-                if not os.path.isfile(intraday_path) or args.append:
-                    await financials.query(stock.symbol, intraday_path, True)
+                    intraday_path = os.path.join(
+                        MoneyCache, get_relative_intraday_prices_path(stock.symbol)
+                    )
+                    if not os.path.isfile(intraday_path) or args.append:
+                        await financials.query(stock.symbol, intraday_path, True)
 
-            if args.options and stock.info and stock.info.options:
-                log.info(f"{stock.symbol:6} processing")
+                if args.options and stock.info and stock.info.options:
+                    log.info(f"{stock.symbol:6} processing")
 
-                todays_chain_path = f"chain-{today_str}-{stock.symbol}.json"
-                if await is_missing(todays_chain_path):
-                    async with throttler:
-                        fc = finnhub.Client(api_key=FinnHubKey)
-                        res = json.loads(fc.option_chain(symbol=stock.symbol))
-                        await write_json_file(res, todays_chain_path)
+                    todays_chain_path = f"chain-{today_str}-{stock.symbol}.json"
+                    if await is_missing(todays_chain_path):
+                        async with throttler:
+                            fc = finnhub.Client(api_key=FinnHubKey)
+                            res = json.loads(fc.option_chain(symbol=stock.symbol))
+                            await write_json_file(res, todays_chain_path)
+            except:
+                log.error(f"error", exc_info=True)
+                time.sleep(5)
 
     finally:
         log.info(f"closing")
