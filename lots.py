@@ -48,6 +48,12 @@ class Lots:
         )
 
 
+def parse_date(raw: str) -> datetime:
+    try:
+        return datetime.strptime(raw, "%Y/%m/%d")
+    except ValueError:
+        return datetime.strptime(raw, "%y-%b-%d")
+
 def parse(raw: str) -> Lots:
     lots: List[Lot] = []
 
@@ -58,7 +64,7 @@ def parse(raw: str) -> Lots:
             quantity = Decimal(m.group(1))
             symbol = m.group(2)
             price = Decimal(m.group(3))
-            date = datetime.strptime(m.group(4), "%y-%b-%d")
+            date = parse_date(m.group(4))
             lots.append(Lot(date, symbol, quantity, price))
 
     return Lots(lots)
