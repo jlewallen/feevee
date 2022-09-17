@@ -1,0 +1,11 @@
+[Unit]
+Description=Update prices timer
+Requires=update-prices.service
+
+[Timer]
+OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 15:00:00
+Persistent=True
+Unit=update-prices.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Update prices
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=$HOME/.config/systemd/user/update-prices.sh
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target
