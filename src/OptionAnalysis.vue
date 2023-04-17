@@ -14,8 +14,8 @@
 
 <script>
 import _ from "lodash";
-import * as vega from "vega";
-import { default as vegaEmbed } from "vega-embed";
+// import * as vega from "vega";
+// import { default as vegaEmbed } from "vega-embed";
 
 class Option {
     constructor(date, strike, ask, quantity) {
@@ -105,6 +105,10 @@ export default {
 
         const { data, range: plRange } = simulation.run(priceRange);
 
+        console.log("sim:data", data);
+        console.log("sim:data", plRange);
+
+        /*
         const lineSpec = {
             $schema: "https://vega.github.io/schema/vega-lite/v5.json",
             data: { name: "table" },
@@ -134,6 +138,7 @@ export default {
             .insert(data);
 
         embedded.view.change("table", changeSet).run();
+        */
     },
 
     methods: {},
