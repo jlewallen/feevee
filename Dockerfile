@@ -1,12 +1,12 @@
-FROM python:3.9-slim AS python-venv-image
+FROM python:3.10-slim AS python-venv-image
 
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends build-essential gcc
+RUN apt-get install -y --no-install-recommends build-essential gcc libxml2-dev libxslt1-dev
 RUN python -m venv /app/venv
 # Make sure we use the virtualenv:
 ENV PATH="/app/venv/bin:$PATH"
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 FROM node:16 AS build-nodejs-image
 
@@ -18,7 +18,7 @@ COPY src /app/web/src
 COPY src/config.ts.prod /app/src/web/src/config.ts
 RUN cd web && yarn build
 
-FROM python:3.9-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 

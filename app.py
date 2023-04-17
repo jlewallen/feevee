@@ -138,6 +138,8 @@ async def assemble_stock_view_model(stock: Stock):
     def is_nearby(
         target: Decimal, value: Decimal, epsilon: Decimal = Decimal(0.1)
     ) -> bool:
+        if target is None:
+            return False
         s = value * Decimal(1.0) - epsilon
         e = value * Decimal(1.0) + epsilon
         return target >= s and target <= e
