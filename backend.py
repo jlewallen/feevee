@@ -41,7 +41,7 @@ Caching = (
 FinnHubKey = os.environ["FINN_HUB_KEY"] if "FINN_HUB_KEY" in os.environ else None
 PriorityMiddle = 0.5
 MetaPaths: Dict[str, str] = {
-    "sa": os.path.join(MoneyCache, "seeking-alpha/seeking-alpha.json"),
+    # "sa": os.path.join(MoneyCache, "seeking-alpha/seeking-alpha.json"),
 }
 CandlesPerMinute = 20
 
