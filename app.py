@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 from aiocache import cached
 from dataclasses import dataclass, field
 from ta.volume import AccDistIndexIndicator
-import logging, json, re
+import logging, json, re, math
 
 from backend import (
     CheckSymbolMessage,
@@ -138,7 +138,7 @@ async def assemble_stock_view_model(stock: Stock):
     def is_nearby(
         target: Decimal, value: Decimal, epsilon: Decimal = Decimal(0.1)
     ) -> bool:
-        if target is None:
+        if target is None or math.isnan(target) or target.is_nan():
             return False
         s = value * Decimal(1.0) - epsilon
         e = value * Decimal(1.0) + epsilon
