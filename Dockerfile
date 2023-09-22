@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 FROM node:16 AS build-nodejs-image
 
 WORKDIR /app
-COPY package.json /app/web/
-RUN cd web && yarn install 
+COPY package*.json /app/web/
+RUN cd web && npm install 
 COPY public /app/web/public
 COPY src /app/web/src
 COPY src/config.ts.prod /app/src/web/src/config.ts
